@@ -67,7 +67,7 @@ Agent 想发一条富文本卡片      → 需要往 API 写
 Agent 想申请一个危险操作的权限  → 需要问用户，等回复
 Agent 想标记"我在等 CI"       → 需要写球权状态
 Agent 想搜项目记忆            → 需要读 evidence 库
-Agent 想交接给另一只 Agent     → 需要往 worklist 里塞人
+Agent 想交接给另一只 Agent     → 需要把目标 Agent 排进执行队列（见 §7 的三代演进）
 ```
 
 **这些都不能靠 stdout（那是单向的），必须有一条回程。**
@@ -241,7 +241,7 @@ function readAgentKeyFile(path: string | undefined): string | undefined {
  */
 ```
 
-**"refresh is plumbing, not a cognitive action" 这句话很重要：**
+**"refresh is plumbing, not a cognitive action" (刷新是管道，而不是认知行为)这句话很重要：**
 
 > 如果把刷新暴露成 MCP 工具，Agent 会**主动去调它**，
 > 而且是出于错误的理由（"我先刷新一下 token 保证安全"）。
@@ -988,7 +988,7 @@ sidecar 文件（Antigravity 已经在用）可以复用 ——
 ### 下游：回调触发了什么
 
 ```
-callback-a2a-trigger        → worklist.push()（模块 03）
+callback-a2a-trigger        → InvocationQueue.enqueue（agent 条目，默认路径）（模块 03/22）
 callback-hold-ball          → ball.held 事件（模块 10）
 callback-memory-routes      → evidence 写入（模块 09）
 callback-multi-mention      → 多方询问编排（模块 03）
@@ -997,12 +997,48 @@ callback-workflow-sop       → SOP 阶段推进（模块 14）
 create_rich_block           → RichBlockBuffer → 前端渲染
 ```
 
-**注意 `callback-a2a-trigger` 能往 worklist 里塞人** ——
-这就是 [模块 03](03-模块-路由与编排.md) 里那句注释的来源：
+**`callback-a2a-trigger` 怎么派发下一只 Agent，经过了三代演进 —— 这是个高频追问点，要讲准：**
+
+| 代 | 标记 | 做法 | 现状 |
+|---|---|---|---|
+| 一 | F27 之前 | callback 检测到 @ → spawn **独立 routeExecution** | 已废（导致 double-fire + 无限递归） |
+| 二 | **F27** | callback → **`pushToWorklist`** 推入父调用的 worklist | 降级为 **legacy 兜底** |
+| 三 | **F122B** | callback → **`invocationQueue.enqueue`**（`source:'agent'` / `autoExecute:true`） | **当前默认** |
+
+`enqueueA2ATargets()`（`packages/api/src/routes/callback-a2a-trigger.ts`）的分支顺序是【源码】：
 
 ```ts
-// F27: Register worklist so callback A2A can push targets here
+if (deps.invocationQueue) {          // ← 生产环境接线，命中这条
+  // ...invocationQueue.enqueue({ source:'agent', sourceCategory:'a2a', autoExecute:true })
+  return { ..., fallback: false }
+}
+if (hasWorklist(threadId)) {         // ← F27 legacy：只在队列依赖没注入时
+  pushToWorklist(...)
+  // ...
+}
+// 连 worklist 都没有 → triggerA2AInvocation() 起独立调用（fallback）
 ```
+
+文件头注释原话【源码】：
+
+> F122B: If InvocationQueue is available, enqueue as agent entry (unified dispatch).
+> **This replaces both the worklist path and the fallback standalone invocation.**
+
+**所以：默认是入 queue，不是直接 push worklist。** 改成入 queue 的动机是
+【ADR】ADR-018 的"统一执行通道"——
+push worklist 有两个问题：① 用户在队列面板看不见、没法 steer；
+② 用户消息走 queue、A2A 走 worklist 是两套分发平面，排序/取消/暂停要写两遍。
+标 `source:'agent'` + `autoExecute:true` 之后，用户看得见、能插队，但系统仍自动执行不用批准。
+
+**一个容易被追到的耦合细节**【源码】：
+即使派发走了 queue，**乒乓 streak 的计数状态仍挂在 `WorklistRegistry` 上** ——
+queue 路径里通过 `getWorklist()` 拿 streak entry、调 `updateStreakOnPush()`
+（`callback-a2a-trigger.ts` 里的 `canTrackStreak` / `streakEntry`）。
+所以"派发平面"迁走了，"乒乓状态"没跟着迁。
+
+**深度限制在 queue 路径里是 `MAX_A2A_DEPTH = 10`**（`countAgentEntriesForThread()` 每个 target 重查，防多 target 溢出）——
+注意这和 [模块 04](04-模块-mention解析.md) mention 解析里的 15 是**不同口径**：
+一个数队列里的 agent 条目数，一个是链深度上限。
 
 **所以 A2A 有两条触发路径**：文本扫描（模块 04）和 MCP 回调（本模块）。
 而**结构化的那条更可靠** —— 这也是我在
