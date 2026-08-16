@@ -6,6 +6,156 @@
 
 ---
 
+<!-- BEGIN ZERO-BASE EXPANSION 26 -->
+## 0A. 零基础导读：Provider 层就是“统一插座 + 多种转接头”
+
+> 上层只想说“调用这只猫并给我统一消息流”，但 Claude、Codex、Gemini、OpenCode 等 CLI 的参数、认证、输出和 session 方式不同。Provider 的工作是把差异封装在适配器后面。
+
+### 0A.1 接口与实现
+
+概念上可以理解为：
+
+```ts
+interface AgentService {
+  invoke(prompt: string, options: InvokeOptions): AsyncIterable<AgentMessage>;
+}
+```
+
+上层依赖接口，不依赖 `ClaudeAgentService` 的具体命令行。不同实现遵守同一契约：输入统一 options，输出统一 `AgentMessage`。
+
+这叫依赖倒置/适配器模式：高层编排不应充满 `if provider === 'claude'`。
+
+### 0A.2 统一接口不代表抹平所有能力
+
+Provider 能力并不相同：有的支持 resume、system prompt、JSON stream、MCP、图片、thinking 或特定认证。合理设计是：
+
+- 共同能力进入基础接口；
+- 差异通过 capability/option 显式表达；
+- 不支持时明确降级或报错；
+- 不伪造“成功支持”。
+
+最危险的是静默忽略关键 option，让上层以为安全规则或工作目录已生效。
+
+### 0A.3 启动子进程的最小模型
+
+```ts
+const child = spawn(command, args, {
+  cwd,
+  env,
+  stdio: ['pipe', 'pipe', 'pipe'],
+});
+```
+
+- `command/args`：执行文件和参数数组；不要拼一整条 shell 字符串。
+- `cwd`：子进程工作目录。
+- `env`：环境变量快照。
+- `stdin/stdout/stderr`：输入、正常输出、错误输出管道。
+
+参数数组比 shell 拼接更能避免转义和命令注入。对路径、模型名、MCP server name 等仍要校验。
+
+### 0A.4 stdio、JSONL 与 PTY
+
+- **stdio pipe**：适合机器协议，stdout/stderr 可分别解析。
+- **JSONL**：一行一个 JSON 事件，易流式读取；但要处理半行、空行、超长行和坏 JSON。
+- **PTY**：伪终端，适合 CLI 只有在交互终端才正确工作或输出控制序列的情况；代价是 stdout/stderr 边界更模糊、终端转义更复杂。
+
+“载体”就是如何与 CLI 交互。选择载体不是 UI 细节，会影响稳定性、可解析性和取消方式。
+
+### 0A.5 流解析为什么需要状态
+
+一次 `data` 事件不保证正好是一行：
+
+```text
+chunk1: {"type":"te
+chunk2: xt","value":"hi"}\n{"type"
+chunk3: :"done"}\n
+```
+
+解析器要保留 buffer，只对完整分隔符前的内容 parse，结束时再处理尾巴。不能对每个 chunk 直接 `JSON.parse`。
+
+然后把 Provider 原始事件转换为统一类型：text、thinking、tool、metadata、error、done。转换层还要保证终态只出现一次。
+
+### 0A.6 stdout 与 stderr 不能简单等同成功/失败
+
+很多 CLI 会把进度或 warning 写 stderr，但最终 exit code 为 0；也可能 stdout 有部分结果后进程非零退出。因此终态通常综合：exit code、signal、协议事件、解析错误、超时和取消原因。
+
+同时要限制日志长度并脱敏，避免 stderr 把 token 或 prompt 全部带入日志。
+
+### 0A.7 环境变量是高风险边界
+
+Provider 会合并父进程 env、账号 env、代理、HOME 隔离和 MCP token。阅读时追：
+
+1. 哪些变量从父进程继承；
+2. 哪些被删除，防止串账号/串 base URL；
+3. 哪些由 account 覆盖；
+4. token 是否只对子进程可见；
+5. debug 日志是否会打印完整 env。
+
+环境变量优先级必须确定，否则同一配置在不同机器表现不同。
+
+### 0A.8 HOME/配置隔离为什么必要
+
+CLI 常从 `~/.claude`、`~/.codex` 等读取账号、session、hooks 和配置。多猫/多账号共用 HOME 可能串凭据、串历史和串 MCP。临时 HOME 或专属目录是在文件系统层隔离运行时身份。
+
+清理隔离目录时必须验证路径，不能根据未经校验的 ID 递归删除；这与你的路径穿越与危险文件操作测试经验直接相关。
+
+### 0A.9 session resume 的 Provider 差异
+
+统一层说“恢复 session”，具体 CLI 可能是 `--resume id`、配置文件、transcript 查找或完全不支持。Provider 应负责把统一意图翻译成具体参数，并将“找不到 session”“session 已压缩”“工作区不匹配”归一为上层可判断的错误。
+
+### 0A.10 超时与取消如何落到进程
+
+```text
+AbortSignal/timeout
+→ Provider 停止读写
+→ 请求子进程优雅退出
+→ 必要时升级终止策略
+→ 等待 close/exit
+→ 关闭 parser/tailer/timer
+→ 产出唯一终态
+```
+
+只调用 kill 而不等待 close，可能留下竞态；只停止消费 stdout 而不杀进程，会产生孤儿进程和费用。
+
+### 0A.11 降级状态机
+
+某种载体失败后切换另一载体，需要回答：哪些错误触发、冷却多久、成功后何时恢复首选、状态按 Provider/账号/机器还是全局保存。错误分类比“catch 后换方案”更重要：认证失败换载体通常无效，协议解析失败才可能适合切换。
+
+### 0A.12 第一次源码陪读
+
+```text
+AgentService/AgentMessage 契约
+→ 一个你最熟悉的 Provider 主类
+→ command/args/env/cwd 构建
+→ 流 parser/transform
+→ session 提取与 resume
+→ abort/timeout/finally
+→ 再横向比较第二个 Provider
+→ 最后读 PTY、降级和 transcript tailer
+```
+
+横向做表：认证、载体、session、system prompt、MCP、事件格式、取消方式、降级。
+
+### 0A.13 安全测试清单
+
+参数注入、恶意工作目录、环境变量串账号、代理变量污染、坏 JSONL、超长单行、ANSI 转义、stderr 泄密、子进程不退出、重复 done、resume 到其他仓库、临时目录路径穿越。
+
+### 0A.14 面试回答模板
+
+> “Provider 层用 `AgentService` 统一上层契约，把不同 CLI 的命令参数、认证、session、stdio/PTY 和事件格式封装为适配器。每个 Provider 把原始 JSONL/终端输出归一成 `AgentMessage` 流，并把 abort、超时真正落到子进程生命周期。统一接口不强行抹平能力差异，不支持项通过 capability 或明确降级表达。安全重点是参数数组、cwd/HOME 隔离、env 优先级和日志脱敏。”
+
+### 0A.15 自测
+
+1. 接口统一与能力完全一致有什么区别？
+2. 为什么 data chunk 不能直接 `JSON.parse`？
+3. stderr 为什么不等于失败？
+4. HOME 隔离解决哪些串号风险？
+5. 哪类错误适合载体降级，认证错误为何通常不适合？
+
+---
+<!-- END ZERO-BASE EXPANSION 26 -->
+
+
 ## 1. 文件地图与职责边界
 
 ### 1.1 全景：谁在哪一层
@@ -313,6 +463,43 @@ terminal check silently ignored them and hung to the 30-min timeout.
 `JobStateSnapshot` 字段：`state` / `detail` / `needs`（blocked 时守护进程在等什么）/ `tempo` / `inFlight{tasks,queued,kinds}` / `output.result` / `sessionId` / `resumeSessionId` / `daemonShort` / `cwd` / `createdAt` / `updatedAt` / `linkScanPath`（关联的完整对话 transcript jsonl 路径）/ `worktree` / `worktreePath`。
 
 ---
+
+<!-- BEGIN INLINE SOURCE EXPANSION 26-TYPES -->
+### 2.8 从 `AgentServiceOptions` 到 CLI 参数：统一契约如何逐层翻译
+
+调用层大致只做：
+
+```ts
+for await (const message of service.invoke(prompt, options)) {
+  yield message;
+}
+```
+
+真正复杂的是 options 到 Provider 参数的翻译。可以把字段分成五类：执行位置（workingDirectory、env）、会话（sessionId/resume）、输入载体（system prompt、附件、MCP）、控制（AbortSignal、timeout）、观测（invocationId、trace、raw archive）。每个 Provider 都必须明确支持、降级或拒绝，不能静默吃掉。
+
+例如统一层传入 `sessionId`，Claude 可能转成特定 resume 参数，Codex 可能查自己的 session 目录，ACP/临时载体的 sessionId 甚至只在单次 invocation 有效。`AgentMessage.ephemeralSession` 就是在提醒上层：看到新的 sessionId 不一定意味着旧长期会话被替换，不能机械触发 seal。
+
+输出归一化也不是把所有内容变成 text：
+
+```text
+Provider 原始事件
+├─ 初始化/会话句柄 → session_init
+├─ 增量正文/完整快照 → text + textMode
+├─ 工具开始/结果 → tool_use/tool_result
+├─ 上游限流与容量 → provider_signal
+├─ 仅用于 idle watchdog → liveness_signal
+├─ 临时进度 → status
+└─ 结束事实 → done/error
+```
+
+若把 provider_signal 当正文活动，会错误延长“有内容”判定；若把 liveness_signal 丢掉，长时间思考可能被 idle timeout 误杀；若 status 保存成聊天气泡，UI 会被瞬时进度污染。统一消息类型实际上是在定义上层状态机。
+
+命令构建要区分“值”和“参数结构”。模型名、目录、sessionId 应作为 args 数组元素；用户可配置的 extra args 必须经过 allow/deny 校验，防止覆盖系统注入的 `--cwd`、MCP 或输出格式。env 合并同样有顺序：父环境只是基线，隔离 HOME、删除污染变量、应用 auth/account、最后注入本次 callback token；顺序错了就可能串账号。
+
+进入 §3 时选一个 Provider 画四条并行线：command/args 如何生成，env/cwd 如何生成，stdout 如何变 AgentMessage，abort 如何走到 child close。能完整画出一只，再横向比较其他 Provider，远比按文件名逐个背诵有效。
+
+---
+<!-- END INLINE SOURCE EXPANSION 26-TYPES -->
 
 ## 3. 主流程逐段拆解
 
@@ -2000,6 +2187,80 @@ if (resolved) result[envKey] = resolved;                                       /
 
 ---
 
+<!-- BEGIN INLINE SOURCE EXPANSION 26-FLOW -->
+### 3.13 源码执行复盘：以 Codex Provider 为例追完 command、env、parser、abort
+
+Provider 层的目标不是“执行一条命令”，而是把统一的 `AgentServiceOptions` 翻译成某个 CLI 的进程协议，再把 CLI 事件翻回统一 `AgentMessage`。
+
+#### 1. 先计算模型、L0 和命令参数
+
+`CodexAgentService.invoke(prompt, options)` 先决定 effective model、reasoning 配置、MCP 配置和 L0 注入方式。若 L0 编译失败，源码 fail-closed：不 spawn CLI，而是 yield `error + done`。这是安全规则缺失时宁可不执行，而不是悄悄以无治理 prompt 继续。
+
+主 prompt 不放 argv，而通过 stdin 传入。源码注释给出了真实原因：argv 可能被系统进程列表观察，也可能在并发/转义时产生污染；`--` 结束选项解析，`-` 表示从 stdin 读正文。`claude-agent-service.test.js` 也有“长主 prompt 经 stdin、不进入 argv”的对应测试。
+
+#### 2. env 不是一次对象展开就结束
+
+可以把环境变量按来源分成：
+
+- 父进程基础环境；
+- `callbackEnv`：本次调用身份、API 地址、callback token 等；
+- `accountEnv`：账号凭据、base URL 等；
+- Provider 自己生成的临时路径/配置；
+- deny-list：某些认证模式必须删除继承的敏感变量。
+
+合并顺序很重要，**删除动作也必须在最终合并后仍然生效**。例如 Claude 测试覆盖 subscription profile 清除继承的 `ANTHROPIC_*`，并防止 accountEnv 又把代理 bearer token 加回来。安全测试视角下，这属于凭据隔离和优先级绕过测试。
+
+#### 3. spawn 前后要区分四类失败
+
+1. 配置/编译失败：尚未 spawn；
+2. CLI 不存在：spawn `ENOENT`；
+3. 进程启动后非零退出；
+4. 进程有输出但协议内容表示 error。
+
+统一契约要求这些路径尽量都产生 `error + done`，避免消费者永远等待。`catagent-provider.test.js`、`gemini-agent-service.test.js` 都验证 credential/network/非零退出/abort 后不会悬挂。
+
+#### 4. Codex JSONL 事件怎样映射
+
+典型映射可记为：
+
+- `thread.started` → `session_init`，保存 thread/session ID；
+- item 中的文本增量/完成 → `text`；
+- 工具相关 item → `tool_use` / `tool_result`；
+- `turn.completed` → 汇总 usage，但不一定原样向前端展示；
+- CLI timeout/spawn error → `error`；
+- Provider 自己在流尾补 `done`。
+
+`thread.started` 只说明会话建立，不算实质输出。源码因此不会仅凭它就抑制后续非零退出错误；只有真正 item output 后，某些已知“完成后假失败”才可能被抑制。
+
+#### 5. session 是 Provider 翻译差异最大的字段
+
+统一 options 中是 `sessionId?: string`，不同 CLI 的翻译不同：
+
+- Claude 可能生成 `--resume <id>`；
+- Gemini 有自己的 resume 参数；
+- Codex 使用 thread/session 事件和对应续接机制；
+- 某些载体是 ephemeral，根本不保证跨调用恢复。
+
+因此路由层只表达“希望恢复这个 session”，Provider 决定具体参数。测试 `claude-agent-service.test.js` 和 `gemini-agent-service.test.js` 都分别断言有/无 sessionId 时 CLI 参数是否出现。
+
+#### 6. abort 必须从 HTTP 一直传到子进程
+
+取消链应是：前端取消 → Router/QueueProcessor controller → `invokeSingleCat` 合并 signal → `AgentServiceOptions.signal` → CLI runner 杀进程/停止读流 → Provider yield 终态 → 外层 finally 清理。
+
+如果 Provider 只停止解析 stdout、不终止子进程，会形成后台僵尸；如果只杀进程、不补 done，前端会卡住。Provider 契约因此同时约束“资源终止”和“协议终止”。
+
+#### 7. 面试时画四条线
+
+```text
+command: options -> args/config -> spawn
+    env: parent + callback + account - denyList -> child env
+ parser: stdout/stderr/JSONL -> AgentMessage
+  abort: UI -> AbortSignal -> child process -> error/done/cleanup
+```
+
+只要这四条线都能从入口追到终点，你就真正看懂了一个 Provider，而不是只会说“它封装了 CLI”。
+<!-- END INLINE SOURCE EXPANSION 26-FLOW -->
+
 ## 4. 关键算法与判定逻辑
 
 ### 4.1 `classifyCarrierFailure(error)` —— 三类失败判定
@@ -2531,6 +2792,64 @@ const userControlsAutoApprove = Array.from(OPENCODE_AUTO_APPROVE_FLAG_ALIASES).s
 | Antigravity IDE | HTTP(S) ConnectRPC | protobuf/JSON | RPC | `transformTrajectorySteps` |
 
 ---
+
+<!-- BEGIN INLINE SOURCE EXPANSION 26-ALGO -->
+### 4A. Provider 契约测试：同一套用例跑不同 CLI
+
+Provider 最适合做“契约测试”。不管底层是 Claude、Codex、Gemini 还是 HTTP Agent，消费者至少期望：
+
+1. 所有消息有 `catId` 和 timestamp；
+2. 成功流最终有 done；
+3. 失败/abort 不悬挂，通常有 error + done；
+4. session_init 能给出后续恢复所需 ID；
+5. 工具事件映射到统一类型；
+6. usage/metadata 尽量保留；
+7. signal 能终止真实资源。
+
+`catagent-provider.test.js` 已将这套思想用于 HTTP 型 Provider：成功顺序、provider metadata、credential/API/network/abort 均不悬挂。
+
+#### 参数测试：断言“有”和“绝不能有”
+
+以 CLI Provider 为例：
+
+- 有 sessionId 时出现正确 resume 参数；无时绝不能出现；
+- cwd 等于 workingDirectory；
+- main prompt 在 stdin，不在 argv；
+- system prompt 文件参数不可被 `cliConfigArgs` 覆盖；
+- MCP 外部 env 不泄漏到 argv；
+- 相对 command/workingDir 从正确根目录解析。
+
+`codex-agent-service.test.js`、`claude-agent-service.test.js`、`gemini-agent-service.test.js` 都有真实断言。安全测试尤其要检查 argv 和日志，因为密钥即使未返回给用户，也可能通过进程列表泄露。
+
+#### 环境变量优先级矩阵
+
+构造同名变量分别出现在 parent、callbackEnv、accountEnv，并切换 profile：
+
+| 变量类型 | 预期 |
+|---|---|
+| callback 身份 | 只由本次 invocation 注入，不应被账号配置覆盖 |
+| API key profile | 注入指定 key/base URL |
+| subscription profile | 清除继承的 API key/bearer token |
+| deny-list 命中 | 即使 accountEnv 再提供也必须清除 |
+| 普通非敏感变量 | 按明确优先级合并 |
+
+这里应断言最终传给 spawn 的 env，而不是只测中间 helper 返回值。
+
+#### Parser 测试：乱序、缺字段和尾部错误
+
+模拟 JSONL：正常 session_init/text/tool/done；未知事件；无名 tool result；半行 JSON；stderr 有敏感 OAuth URL；已有实质输出后 CLI 以已知假失败退出。断言未知控制消息不能默认当正文，敏感诊断被清洗，真正错误不能因只有 session_init 而被抑制。
+
+#### Abort 测试的两个断言
+
+- 进程层：kill/abort handler 被调用，监听器和临时文件清理；
+- 协议层：消费者能收到或推导终态，不会永远等下一条。
+
+只测其中一个都不完整。
+
+#### 面试复述
+
+> Provider 是 Anti-Corruption Layer，把统一 options 翻译成各 CLI 的 argv、stdin、env 和 session 机制，再把厂商 JSONL 映射为统一 AgentMessage。契约测试跨 Provider 复用，厂商测试补充具体参数和事件。凭据采用显式合并与 deny-list，prompt 尽量走 stdin/文件，abort 同时结束子进程和消息协议。
+<!-- END INLINE SOURCE EXPANSION 26-ALGO -->
 
 ## 5. 边界情况与防御性代码清单
 

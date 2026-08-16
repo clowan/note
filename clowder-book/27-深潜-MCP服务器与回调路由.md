@@ -6,6 +6,134 @@
 
 ---
 
+<!-- BEGIN ZERO-BASE EXPANSION 27 -->
+## 0A. 零基础导读：MCP 工具、HTTP 回调和可靠性闭环
+
+> MCP 服务器运行在 CLI 子进程可访问的一侧，把“猫想做的动作”变成工具调用；API callback 路由运行在主服务端，负责鉴权、授权、落状态和触发业务。两边通过 HTTP 与 token 连接。
+
+### 0A.1 一次工具调用的完整路径
+
+```text
+模型决定调用 cat_cafe_xxx
+→ MCP SDK 校验工具名与输入 schema
+→ 工具 handler 读取 invocationId/token
+→ callbackPost 发 HTTP 请求
+→ API preHandler 鉴权并派生 principal/scope
+→ route 执行业务或创建 proposal
+→ 返回结构化结果
+→ MCP 转成模型可读 tool result
+```
+
+MCP 不是权限边界本身。真正的身份、scope、审批和资源访问必须在 API 服务端验证。
+
+### 0A.2 ToolDef 与 schema 的作用
+
+工具通常包含：name、description、inputSchema、annotations、handler。schema 不只是给模型看的文档，也用于运行时拒绝缺字段、错类型和越界输入。
+
+但 schema 校验只解决“形状正确”，不解决“是否有权”：合法的 threadId 仍可能不属于当前 principal；合法路径仍可能越出允许根目录。
+
+### 0A.3 HTTP 最小补课
+
+- 路径：`/api/callbacks/...` 表示资源/动作入口。
+- header：携带 invocation/token 等元数据。
+- body：JSON 业务参数。
+- 2xx：请求被接受/成功；4xx：输入、身份或权限问题；5xx：服务端问题。
+
+状态码会影响重试：400/401/403 通常不是盲重试能解决；429、部分 5xx 和网络中断可能适合退避重试。
+
+### 0A.4 authentication 与 authorization
+
+- **认证**：你是谁？token 是否有效，属于哪个 invocation/agent key。
+- **授权**：你能做什么？scope 是否允许该 callback，目标资源是否属于你。
+
+`derivePrincipal` 把不同凭证归一为可判别主体；后续路由仍必须按主体类型和 scope 限制。不要因为 token 正确就允许全部工具。
+
+### 0A.5 callback token 为什么要绑定 invocation
+
+短期 token 与 invocation 绑定可以缩小泄露后的影响范围：调用结束或 TTL 到期后失效，也更容易审计“哪次模型执行发起了这个动作”。长期 agent key 则适合需要跨 invocation 的有限能力，但必须使用更严格 scope、轮换和撤销。
+
+### 0A.6 重试、幂等与 at-least-once
+
+网络超时时，客户端不知道服务端“没收到”还是“已处理但响应丢了”。重试会带来重复，因此可靠链必须同时设计：
+
+```text
+重试策略 + 幂等键/去重记录 + 可审计结果
+```
+
+at-least-once 表示请求可能送达多次，但尽量不丢；业务端必须让重复投递安全。proposal、post message 等有副作用操作尤其需要幂等。
+
+### 0A.7 指数退避与抖动
+
+失败后立即高频重试会造成雪崩。退避让间隔逐步增长，jitter 让多个客户端不要同一时刻再次冲击服务端。每次尝试还要有独立 timeout，并有总次数/总时间上限。
+
+### 0A.8 outbox 为什么要落盘
+
+若 callback 暂时不可达，把请求写入 outbox 后稍后 flush，可提高不丢失概率：
+
+```text
+生成 CallbackRequest
+→ 原子写入 queued 文件
+→ flush 时 rename/claim，避免两个 worker 同时发送
+→ 成功删除/归档
+→ 失败放回或保留重试
+```
+
+文件名和 JSON 不是可靠性的核心，**原子占用、幂等和崩溃恢复**才是。需要测试 claim 后进程崩溃、坏文件、重复 flush 和磁盘满。
+
+### 0A.9 degradation 与静默失败的边界
+
+降级可以把“增强能力不可用”变成提示或替代路径，但认证/授权失败不能伪装成成功。合理原则：
+
+- 读操作、提示类增强可 fail-open 或返回部分结果；
+- 写入、权限、审批和安全边界应 fail-close；
+- 降级结果必须显式告诉调用者，不能让模型误以为动作已完成。
+
+### 0A.10 proposal/approval 为什么不是直接执行
+
+高影响动作先 propose，再由 Approval Hub 聚合审批，体现命令与审批分离：Agent 只提交意图和证据，最终执行权由具备权限的主体决定。
+
+面试可从安全角度解释：降低 prompt injection 或模型误判直接造成外部副作用的风险，并保留审计链。
+
+### 0A.11 路径工具的双重校验
+
+路径字符串看起来在根目录内并不够，符号链接可能逃逸。安全校验要结合规范化路径、允许根、`realpath` 和“最深已存在父路径”。创建新文件时目标本身可能不存在，因此只 realpath 目标会失败，需要验证最近的真实父目录。
+
+### 0A.12 第一次源码陪读
+
+```text
+一个 ToolDef 和 registerTools
+→ callbackPost/buildAuthHeaders
+→ 对应 API callback route
+→ preHandler/derivePrincipal/scope
+→ retry
+→ outbox
+→ degradation
+→ propose + Approval Hub
+→ path-validator 与 annotation/filter
+```
+
+每条工具画“输入 schema—认证—授权—副作用—幂等—返回”的六列表。
+
+### 0A.13 安全测试清单
+
+缺 token、过期 token、token 与 invocation 不匹配、agent key scope 越权、重复 idempotency key、响应丢失后重试、callback 400/401/429/500、outbox 坏文件、符号链接逃逸、readonly filter 拼写错误、proposal 绕过审批。
+
+### 0A.14 面试回答模板
+
+> “MCP 侧负责工具注册、schema 校验和把调用转成 HTTP callback，API 侧才是认证授权和业务真相源。短期 callback token 绑定 invocation，长期 agent key 受 scope 限制。可靠性用 per-attempt timeout、退避重试、幂等键和落盘 outbox 形成 at-least-once 闭环；高风险动作走 proposal/Approval Hub，认证和授权失败必须 fail-close，不能被 degradation 掩盖。”
+
+### 0A.15 自测
+
+1. schema 校验为何不能替代授权？
+2. 网络超时后为何不能确定服务端没执行？
+3. outbox、重试和幂等为何必须一起设计？
+4. proposal 比直接执行安全在哪里？
+5. `startsWith(root)` 为什么不足以防符号链接逃逸？
+
+---
+<!-- END ZERO-BASE EXPANSION 27 -->
+
+
 ## 1. 文件地图与职责边界
 
 ### 1.1 MCP 服务端（猫这一侧，跑在 CLI 子进程里）
@@ -254,6 +382,32 @@ export interface IApprovalAdapter {
 | `PREVIEW_MAX_CHARS`（anchor 预览） | 280（≈70 token） | `callback-anchor-helpers.ts` |
 
 ---
+
+<!-- BEGIN INLINE SOURCE EXPANSION 27-TYPES -->
+### 2.10 用判别联合追踪一次 callback 的身份变化
+
+`CallbackPrincipal` 把两类调用者统一到一个变量中，但通过 `kind` 保留差异：
+
+```ts
+if (principal.kind === 'invocation') {
+  // 短期 callback token：受 invocation、cat、thread、过期时间约束
+} else {
+  // 长期 agent key：受 key record 和 scope 约束
+}
+```
+
+这是 TypeScript 判别联合的价值：进入分支后编译器知道当前有哪些字段，新增第三种 principal 时也更容易检查是否所有 switch 都处理了。不要为了“统一”把两种身份压成一堆 optional 字段，否则很容易出现 agentKeyId 和 invocationId 同时为空却继续执行。
+
+`CallbackAuthFailureReason` 的九种 reason 是鉴权协议的一部分。401 只是 HTTP 粗粒度结果；`missing_headers`、`unknown_invocation`、`token_mismatch`、`expired` 等机器 reason 才能支持准确遥测、富块提示和是否刷新 token 的决定。客户端不能见到任意 401 都无限 refresh：token 与 invocation 不匹配时，刷新也不应把错误主体变成合法主体。
+
+`CallbackRequest` 是准备发送的业务请求，`OutboxEntry` 还要增加 queuedAt、attempt/claim 等投递状态。两者分离说明“业务动作是什么”与“可靠投递进行到哪里”不是同一个对象。文件 outbox 中保存 secret 会扩大泄露面，因此应尽量只保存重放所需最小信息，并依赖受限目录权限。
+
+一次有副作用的 propose 可以按七个检查点阅读：schema 形状正确 → principal 认证成功 → scope 允许 → 资源归属正确 → idempotency 去重 → 创建 ApprovalItem → adapter/Hub 暴露给审批者。前四步任何一步失败都不应进入降级“假成功”；proposal 成功也只代表请求已进入审批，不代表动作已执行。
+
+进入 §3 后，把每个 callback route 写成六列表：凭证来源、principal 类型、要求 scope、读取/写入资源、幂等键、成功语义。这样 32 个路由就能按模式归类，而不是逐文件死记。
+
+---
+<!-- END INLINE SOURCE EXPANSION 27-TYPES -->
 
 ## 3. 主流程逐段拆解
 
@@ -577,3 +731,602 @@ F193 的 `toSettledItem` 是四个里唯一会 **throw** 的：`if (p.status !==
 - `cat_cafe_propose_profile_update` 的描述强调 `afterContent` 是**整文件替换不是 diff**，且 target 永远是服务端从认证身份派生的自己的 primer，「你无法指向另一只猫或共享 capsule」。
 
 ---
+
+<!-- BEGIN INLINE SOURCE EXPANSION 27-FLOW -->
+### 3.10 源码执行复盘：一条 callback 从猫侧工具到服务端业务
+
+以猫调用 `cat_cafe_post_message` 为例，完整链路可以拆成七跳：
+
+```text
+MCP tool handler
+  -> callbackPost()
+  -> sendCallbackRequest()/postJsonWithRetry()/必要时 outbox
+  -> API callback route
+  -> auth preHandler
+  -> CallbackPrincipal + scope
+  -> 持久化、A2A enqueue、broadcast 或 propose/approval
+```
+
+#### 第 1 跳：工具 handler 先做输入校验
+
+MCP 工具 schema 负责把模型给出的自由 JSON 收紧为业务参数。不要把 schema 当 TypeScript 类型提示；它是运行时边界，能拒绝缺失字段、错误枚举和超长输入。工具 handler 再选择 callback path 和 body。
+
+#### 第 2 跳：`callbackPost()` 组装身份
+
+一次 invocation callback 通常带 `x-invocation-id` 和 `x-callback-token`；后台 agent-key 模式则带 agent key 相关凭据。它们不能混为“某个 token 字符串”，因为服务端会派生不同的 `CallbackPrincipal`：
+
+- `{ kind: 'invocation', ... }`：只代表某次活跃调用；
+- `{ kind: 'agent_key', ... }`：代表长期注册的猫身份，并受 key scope 限制。
+
+`callback-auth-agent-key.test.js` 验证 invocation 凭据优先；invocation 校验失败时即使同时有 agent key 也不能 fall through。否则攻击者可故意提交坏 invocation token，再借较宽松 agent key 绕过。
+
+#### 第 3 跳：retry 只重试“可能暂时恢复”的失败
+
+`postJsonWithRetry()` 对网络错误、部分 5xx 等做有限次数和延迟重试。401 不是统一 refresh：
+
+- `expired`、`unknown_invocation` 可能进入特定降级/刷新策略；
+- `invalid_token` 更像客户端 bug 或攻击，不应盲目重试；
+- `stale_invocation` 表示身份与当前运行状态不匹配，也不应伪装成临时网络故障。
+
+这也是为什么服务端返回结构化 `reason`，而不是只有 HTTP 401。
+
+#### 第 4 跳：outbox 提供 at-least-once，不提供 exactly-once
+
+当请求暂时发不出去，可把 `CallbackRequest` 写到磁盘 outbox，之后按 FIFO 重放。重放可能在“服务端已成功但客户端没收到响应”的情况下再次发送，所以业务端仍必须依赖 `clientMessageId`/幂等键去重。
+
+可靠性闭环是：客户端持久 outbox + 有界 retry + 服务端幂等，而不是只靠任何一层。`packages/mcp-server/test/callback-retry.test.js` 和 callback outbox 相关测试用于验证重试边界、顺序、legacy entry 迁移与 claim 行为。
+
+#### 第 5 跳：preHandler 默认 fail-closed
+
+服务端先检查 header；缺一半凭据是 `missing_creds`，invocation 不存在是 `unknown_invocation`，token 不匹配是 `invalid_token`。`callback-auth-prehandler.test.js` 验证无凭据的可选 panel 路径可以不装饰 principal，但“要求鉴权的 handler”若最终拿不到 principal 必须 401。
+
+注意“preHandler 无凭据时 no-op”和“业务 handler 接受匿名”是两回事。后者必须显式允许；不能因为中间件没回 401 就默认授权。
+
+#### 第 6 跳：principal 还要转换成业务 scope
+
+认证回答“你是谁”，授权回答“你能操作哪个 thread/cat/user”。服务端要从 principal、invocation record、agent key record 和请求参数推导 scope，并检查请求 body 声称的 threadId/catId 是否一致。
+
+安全测试时重点做参数替换：保持合法 token 不变，只替换 threadId、catId、targetCats、userId，观察是否存在 IDOR/越权。
+
+#### 第 7 跳：业务写入仍有自己的失败策略
+
+例如 post message：先落库，再尝试 A2A enqueue；enqueue 成功的 queued message 不立即 live broadcast，避免同一消息通过队列和广播双投递。若 enqueue 抛错或得到零目标，系统可 fail-open 广播，确保消息不消失。`callback-delivery.test.js` 覆盖这几条分支。
+
+cross-post 则更严格：跨线程没有 `targetCats`、也没有行首 mention 时必须 400 fail-closed。`callback-cross-post-fail-closed.test.js` 还验证失败请求不能提前消费 `clientMessageId`，否则用户修正参数后重试会被错误判为重复。
+
+#### 面试回答骨架
+
+**MCP callback 是跨进程写操作：工具层做 schema 校验，客户端附带 invocation 或 agent-key 身份，通过有界重试和 outbox 实现至少一次送达；API 先认证再按 principal 推导 scope，业务写入用幂等键消除重放，并根据队列/广播语义决定 fail-open 还是 fail-closed。**
+<!-- END INLINE SOURCE EXPANSION 27-FLOW -->
+
+## 4. 关键算法与判定逻辑
+
+### 4.1 `withDegradation` 决策树（`degradation.ts` 全文级拆解）
+
+这是 F174 Phase E 的核心，122 行，但信息密度极高。先看它的**五条 AC**（源码文件头注释）：
+
+```
+AC-E1  框架化：让 create_rich_block 的 Route B 能声明式表达，行为不变
+AC-E2  每个 write-class 工具必须显式声明 policy（none 也行，"显式 > 静默默认"）
+AC-E3  只在 401 + 可降级 reason 触发；5xx 等瞬时错误留给 callback-retry 层
+AC-E4  降级成功要在 JSON payload 标 DEGRADED:true，让调用方/看板能识别
+AC-E6  stale_invocation 不可降级——降级会在被取代的 invocation 上重建状态
+```
+
+主函数逐行判定：
+
+```ts
+export async function withDegradation(opts: WithDegradationOptions): Promise<ToolResult> {
+  const result = await opts.primary();
+  if (!result.isError) return result;                              // ① 成功直接返回
+
+  const errorText = result.content[0]?.type === 'text' ? result.content[0].text : '';
+  const reason = parseAuthFailureReason(errorText);
+  if (reason === undefined) return result;                        // ② 非鉴权失败 → 不归我管（是 retry 层的）
+  if (!DEGRADABLE_AUTH_REASONS.has(reason)) return result;        // ③ invalid_token / stale_invocation 原样冒泡
+
+  if (opts.policy.kind === 'none') {
+    return appendNoFallbackHint(result, opts.toolName, reason);   // ④ 声明了 none → 加提示但不降级
+  }
+  const fallback = await opts.policy.degrade(result);             // ⑤ 跑自定义降级
+  if (fallback.isError) return fallback;                          //    降级本身也失败 → 返回降级的错
+  return markDegraded(fallback);                                  //    降级成功 → 标 DEGRADED:true
+}
+```
+
+**这里最容易被追问的是"reason 怎么从一段文本里抠出来"**。`parseAuthFailureReason` 的正则是 `/reason\s*[:=]\s*([a-z_]+)/i`——注意它同时吃 `reason:X` 和 `reason=X` 两种写法（`[:=]`），因为 §3.3 的 `extractReasonTag` 产出的是 `[reason=X]`，而别处日志可能写 `reason: X`。抠出来之后还要**双重校验**：
+
+```ts
+if (reason && isCallbackAuthFailureReason(reason) && KNOWN_REASONS.has(reason)) return reason;
+return undefined;
+```
+
+`isCallbackAuthFailureReason` 是 shared 导出的类型守卫，`KNOWN_REASONS = new Set(CALLBACK_AUTH_FAILURE_REASONS)`。**为什么校验两次**：类型守卫保证"是合法枚举字符串"，Set 保证"是这个版本的客户端认识的枚举"——如果服务端将来加了个新 reason，旧客户端 `isCallbackAuthFailureReason` 可能放行（取决于 shared 版本），但 `KNOWN_REASONS` 一定拦住，返回 undefined 走"非鉴权失败"路径原样冒泡。**宁可不降级，也不拿一个不认识的 reason 去做降级决策。**
+
+`DEGRADABLE_AUTH_REASONS` 只有两个成员，且注释把三者的区别钉死：
+
+```ts
+// Degradable: token has stopped working through expiry/registry loss.
+// Distinct from invalid_token (likely client bug) and stale_invocation
+// (succeeded but superseded — fallback would re-create stale state).
+const DEGRADABLE_AUTH_REASONS = new Set(['expired', 'unknown_invocation']);
+```
+
+**`markDegraded` 的兜底也值得复述**：它先试 `JSON.parse(block.text)`，成功且是对象就 `{...parsed, DEGRADED: true}`；**parse 失败**（payload 不是 JSON）就包一层信封 `{DEGRADED: true, payload: block.text}`。也就是说无论原返回是不是结构化的，降级标记一定加得上。`appendNoFallbackHint`（policy=none 时）则是往文本尾部追加 `\n\n[degrade] tool=X reason=Y no fallback available — auth must be restored before retry`——**给猫看的、告诉它"这条路没有备用通道，得先恢复鉴权"**。
+
+### 4.2 保活的自适应间隔（`refresh-loop.ts` 全文级拆解）
+
+`computeNextRefreshDelay` 是**纯函数**（注释明说 "testable without a running timer or HTTP layer"）：
+
+```ts
+export function computeNextRefreshDelay(ttlRemainingMs: number): number {
+  const proportional = ttlRemainingMs / 4;
+  const clamped = Math.max(MIN_DELAY_MS, Math.min(MAX_DELAY_MS, proportional));
+  const jitter = JITTER_FLOOR + Math.random() * 0.3;             // [0.85, 1.15]
+  return Math.floor(clamped * jitter);
+}
+```
+
+`MIN_DELAY_MS` 的推导链（这是全篇最经典的一个"下界语义"bug，Cloud Codex P2 #1368）：
+
+```
+服务端每 invocation 刷新冷却 = 5min
+原写法：MIN = 5min，再乘 [0.85,1.15] 抖动
+    → 最坏 5min × 0.85 = 4.25min < 5min 冷却 → 15% 概率区间撞冷却拿 429
+修法：MIN = ceil(5min × 1.05 / 0.85) ≈ 6.18min
+    → 抖完最坏 6.18 × 0.85 ≈ 5.25min > 5min，稳在冷却之上
+    → 1.05 是给客户端/服务端时钟偏移留的 5% 余量
+```
+
+**教训一句话：加了抖动之后，"下界"约束的不再是你写的那个值，而是"那个值 × 抖动下界"。** 面试时这句话比背常量更值钱。
+
+`performRefreshTick` 里有个刻意的"不复用重试层"的决定（Cloud Codex P2 #1368）：
+
+```ts
+// 单次 refresh 用 raw fetch，不走 callback-retry。因为 callback-retry 会重试
+// 408/429/5xx——而 429 恰恰是"撞了 5min 冷却"，几秒内重试必然再失败，白烧 3 次。
+// refresh loop 本身就是一个重试机制，再叠一层是结构性重复。
+const response = await fetch(`${config.apiUrl}/api/callbacks/refresh-token`, {
+  method: 'POST',
+  headers: { 'Content-Type': 'application/json', ...buildAuthHeaders(config) },
+  body: '{}',
+  signal: AbortSignal.timeout(timeoutMs),                        // ← 10s，见下
+});
+```
+
+`DEFAULT_FETCH_TIMEOUT_MS = 10_000` 的注释（Cloud Codex P1 #1368, commit e521cc7aa）：没有 AbortSignal，半开 TCP socket 会让 `await fetch` **永远 pending**，循环永不 reschedule，token 在长会话里静默过期。10s 覆盖慢网，又远小于 5min 冷却，所以一次卡住的 tick 不会把下次尝试推出冷却安全窗。
+
+**优雅退出**藏着两个连续的 review（P1 → P2，都在 #1368）：
+
+```ts
+const SIGNAL_NUMBERS = { SIGTERM: 15, SIGINT: 2 };
+export function installShutdownHandlers(loop, proc = process): void {
+  for (const signal of ['SIGTERM', 'SIGINT'] as const) {
+    proc.on(signal, () => {
+      loop.stop();
+      proc.exit(128 + SIGNAL_NUMBERS[signal]);                   // SIGTERM→143, SIGINT→130
+    });
+  }
+}
+```
+
+- **P1**：注册了自定义 SIGINT/SIGTERM handler 却不调 `process.exit()`，会**压掉 Node 默认的终止行为**，MCP 进程收到信号后反而停不下来。
+- **P2**：`exit(0)` 会把"因何终止"的信息藏起来。Unix 惯例是 `exit(128 + signum)`，让 shell/进程管理器能还原是哪个信号杀的。`proc` 依赖注入是为了测试。
+
+还有 `startRefreshLoop` 里两处 `timer.unref()`——让这个定时器**不阻止进程退出**（否则保活循环会把一个本该结束的进程吊住）。首个 tick 延迟 `FALLBACK_DELAY_MS`（让服务端先就绪）。
+
+### 4.3 重试：`postJsonWithRetry` 的循环边界（`callback-retry.ts` 全文级）
+
+```ts
+for (let attempt = 0; attempt <= retryDelaysMs.length; attempt += 1) {   // ← 注意是 <=
+  try {
+    const response = await fetch(url, { ..., signal: AbortSignal.timeout(fetchTimeoutMs) });
+    if (response.ok) return { ok: true, data: await response.json() };
+    const text = await response.text();
+    const reasonTag = response.status === 401 ? extractReasonTag(text) : '';
+    lastError = `Callback failed (${response.status})${reasonTag}: ${text}`;
+    retryable = shouldRetryStatus(response.status);              // 408 || 429 || >=500
+    if (!retryable || attempt >= retryDelaysMs.length) {
+      return { ok: false, failure: { error: lastError, retryable } };
+    }
+  } catch (err) {                                                // 含 AbortSignal 触发的 timeout
+    lastError = `Callback request failed: ${err.message}`;
+    retryable = true;                                            // 网络异常一律 retryable
+    if (attempt >= retryDelaysMs.length) return { ok: false, failure: { error: lastError, retryable } };
+  }
+  await sleep(retryDelaysMs[attempt]!);
+}
+```
+
+**几个精确点**：
+- 循环是 `attempt <= length`，配 `DEFAULT_RETRY_DELAYS_MS = [1000,2000,4000]` 意味着**总共 4 次尝试**（第 0 次立即 + 3 次退避后重试），不是 3 次。
+- `shouldRetryStatus` 只认 **408 / 429 / ≥500**；其余 4xx（含 401）`retryable=false`，立刻返回不重试——鉴权失败重试没意义。
+- **`catch` 里 `retryable=true`**：抓到的既有 `AbortSignal.timeout` 的中止，也有 DNS/连接错误，都当瞬时。这正是 outbox 层判断"要不要落盘"的依据（§3.3 只有 `failure.retryable` 才 enqueue）。
+- `extractReasonTag` 只在 401 时调，把 `{error:'callback_auth_failed', reason:X}` 的 body 抠成 ` [reason=X]` 拼进错误串——**这样下游（withDegradation）能 regex 出结构化 reason，而不用去匹配散文**。parse 失败返回空串，注释明确"caller should not depend on the marker existing"。
+
+两个常量都可 env 覆盖：`CAT_CAFE_CALLBACK_RETRY_DELAYS_MS`（逗号分隔，过滤掉非有限/负数，全空则回默认）、`CAT_CAFE_CALLBACK_FETCH_TIMEOUT_MS`（须 >0）。
+
+### 4.4 outbox：FIFO、原子占用、legacy 迁移（`callback-outbox.ts` 全文级）
+
+**enqueue** 用文件名编码时间戳：
+
+```ts
+const file = join(dir, `${entry.queuedAt}-${entry.id}${OUTBOX_FILE_SUFFIX}`);  // {ms}-{uuid}.json
+```
+
+**flush** 的完整判定：
+
+```ts
+const files = (await readdir(dir))
+  .filter((name) => name.endsWith('.json') && !name.endsWith('.processing'))   // 跳过在处理的
+  .sort()                                                                       // 字典序=时间戳前缀=FIFO
+  .slice(0, maxFlushBatch);                                                     // 每轮最多 20
+
+for (const name of files) {
+  try { await rename(originalPath, processingPath); } catch { continue; }       // ① 抢占，抢不到跳过
+  try {
+    const entry = parseOutboxEntry(await readFile(processingPath, 'utf8'));
+    if (!entry || entry.attempts >= maxAttempts) { await unlink(processingPath); continue; }  // ② 坏/超限 丢弃
+
+    const replayHeaders = entry.headers ?? legacyHeadersFromBody(entry.body);   // ③ #476 legacy 迁移
+    const replay = await postJsonWithRetry(`${entry.apiUrl}${entry.path}`, JSON.stringify(entry.body), retryDelaysMs, replayHeaders);
+    if (replay.ok) { await unlink(processingPath); continue; }                  // ④ 成功删除
+    if (!replay.failure.retryable || entry.attempts + 1 >= maxAttempts) { await unlink(processingPath); continue; }  // ⑤ 不可重试/到顶 丢弃
+
+    const updated = { ...entry, attempts: entry.attempts + 1, lastError: replay.failure.error };
+    await writeFile(processingPath, JSON.stringify(updated), 'utf8');
+    await rename(processingPath, originalPath);                                 // ⑥ 计数+1 放回队列
+  } catch {
+    try { await rename(processingPath, originalPath); } catch {}                // ⑦ 任何异常都把文件放回，别吞
+  }
+}
+```
+
+**逐点解释**：
+- **① `rename` 是唯一并发原语**：两个 flush 并发时，谁 rename 成功谁独占；文件系统 rename 原子，不用锁。`.processing` 后缀同时被 filter 排除，防止自己处理到别人的在途文件。
+- **③ legacy 迁移**是 #476 的兼容窗口：header 迁移之前落盘的 entry 把凭证放在 body 里，`legacyHeadersFromBody` 把 `body.invocationId/callbackToken` 拎出来拼成 `x-invocation-id/x-callback-token` header，好让新版 preHandler 收得下。**这是"落盘数据跨版本"的典型处理——旧数据在重放时就地升格。**
+- **⑦ catch 里再 rename 回原名**：注释 "Keep best-effort semantics"。任何读/写/网络异常都不能让文件卡在 `.processing` 状态永远不被重试。
+
+**`sendCallbackRequest` 的伪成功返回**是最容易被追问的一点：
+
+```ts
+if (enableOutbox && result.failure.retryable) {
+  const queued = await enqueueOutbox({ id: randomUUID(), queuedAt, ..., attempts: 0, lastError });
+  if (queued) return { ok: true, data: { status: 'queued_for_retry', queuedAt } };   // ← ok:true！
+}
+```
+
+**落盘成功后返回 `ok:true` + `status:'queued_for_retry'`**——对猫来说这次工具调用"成功了"，因为消息已被持久化、迟早会送到。这就是 at-least-once 语义在 API 边界的体现：**不阻塞猫，代价是可能重复送达，所以服务端必须幂等（§4.5）**。另外 `sendCallbackRequest` 每次发送前会**先 `flushOutbox()`**——搭着新请求的便车把存量补发出去。
+
+### 4.5 at-least-once 的闭环：三处幂等键
+
+outbox 重放可能重复送达，所以服务端幂等是**配套的、缺一不可**的另一半：
+
+```
+invocation 内：InvocationRecord.clientMessageIds: Set<string>       同一 invocation 去重
+propose 路由：clientRequestId → reserveDedup(SET NX) → proposalId   见 §3.7 ④⑤
+multi-mention：idempotencyKey                                       [03 章] §3.8
+球权事件：sourceEventId                                             [10 章] §3.10
+```
+
+一句话：**`callback-outbox` 保证"至少送到一次"，这些键保证"多送的那几次不产生副作用"。只做前者会制造重复数据，只做后者会在网络抖动时丢消息。**
+
+### 4.6 annotation 推导与 limb 双轨过滤（安全红线）
+
+`inferAnnotations(toolName)`：登记过的用登记值，**没登记的一律 `A_WRITE_SAFE`（写、非破坏），绝不默认只读**（砚砚 R8）。原因：`readOnlyHint` 会影响过滤，strict-whitelist 模式只放行只读工具；未登记新工具若被默认成只读，等于**绕过白名单漏出去**。默认成"写"最坏被过滤掉（可用性问题），默认成"读"最坏漏一个设备控制面（安全问题）——两害相权取其轻。
+
+`buildLimbTools`：`desktopMode` 未设 → limb 全暴露（Antigravity 要用它控浏览器）；**任何非空 desktopMode（含拼错的）→ 走 `applyReadonlyFilter`**（F178 Phase D cloud-review R3 P2）。`fable-phase0` 白名单不含任何 limb 工具 → 全 deny；未知 mode → 启动即 fail-fast，而不是静默注册全量设备控制面。
+
+---
+
+<!-- BEGIN INLINE SOURCE EXPANSION 27-ALGO -->
+### 4A. Callback 安全测试矩阵：认证成功还不等于授权成功
+
+#### 认证矩阵
+
+| 凭据 | 预期 principal/结果 |
+|---|---|
+| 两个 invocation header 都正确 | `kind=invocation` |
+| 只给一个 header | 401 `missing_creds` |
+| invocation 不存在 | 401 `unknown_invocation` |
+| token 错误 | 401 `invalid_token` |
+| 合法 agent key | `kind=agent_key` |
+| invocation + agent key 都存在 | invocation 优先 |
+| invocation 错 + agent key 对 | 仍 401，不得降级绕过 |
+| 完全无凭据的可选 panel 路径 | preHandler 可 no-op，但受保护 handler 仍须拒绝 |
+
+对应 `callback-auth-prehandler.test.js`、`callback-auth-agent-key.test.js`、`callback-auth-reasons-contract.test.js`。
+
+#### 授权/IDOR 矩阵
+
+拿一组完全合法的 invocation 凭据，只替换请求中的：`threadId`、`userId`、`catId`、`targetCats`、proposal 目标、messageId。每个受保护 route 都要从 principal 推导允许 scope，而不是相信 body。
+
+面试时强调：JWT/token 校验通过只证明身份，不能代替对象级授权。
+
+#### 幂等与至少一次测试
+
+模拟服务端已经落库但响应在网络中丢失，outbox 重放同一 `clientMessageId`。断言：
+
+- 业务记录只出现一次；
+- 客户端能拿到或接受已有结果；
+- 失败校验请求不会提前消费幂等键；
+- FIFO claim 防两个 replay worker 同时发送同一 entry。
+
+`callback-cross-post-fail-closed.test.js` 的“400 后 corrected retry 仍能交付”正是在防校验前消费幂等键。
+
+#### fail-open 与 fail-closed 必须按业务风险选择
+
+- A2A enqueue 临时失败：消息已落库时可 fail-open broadcast，优先不丢消息；
+- cross-thread 没有目标证据：fail-closed 400，避免发到错误线程；
+- auth 不明确：fail-closed；
+- telemetry/通知失败：通常降级，不应改变鉴权结论；
+- propose：只创建审批，不直接修改高风险业务对象。
+
+不要把项目概括成“全部 fail-closed”或“高可用所以 fail-open”。正确答案是按资产与错误后果选择。
+
+#### 提案路由的七点断言
+
+对 thread/session handoff/profile update 等 propose 路由，检查：schema、principal、scope、目标存在性、重复提案幂等、approval item 内容、未审批前无真实变更。审批中心是命令与执行之间的隔离层。
+
+#### 面试复述
+
+> Callback 是跨进程写边界，采用结构化失败 reason、invocation/agent-key 判别主体和对象级 scope 校验。客户端 retry+outbox 提供至少一次，服务端用幂等键实现效果上的去重。消息投递在 enqueue 故障时可 fail-open 保可用，但认证、跨线程目标和高风险变更 fail-closed；高风险操作先生成 proposal 进入审批，而不是工具直接落地。
+<!-- END INLINE SOURCE EXPANSION 27-ALGO -->
+
+## 5. 边界情况与防御性代码清单
+
+每行都标了出处和（可查到的）review 编号——这张表是本篇的护城河，面试官问"这条写通路怎么保证不丢/不重/不越权/不挂"时逐行都是答案。
+
+| 防的是什么失败 | 代码怎么防 | 出处 / 编号 |
+|---|---|---|
+| 半开 TCP 让 `fetch` 永久 pending → 工具永不返回 | 每次 attempt 独立 `AbortSignal.timeout(10s)` | `callback-retry.ts` / #1368 e521cc7aa |
+| 保活 tick 卡死 → 循环永不 reschedule → token 静默过期 | refresh tick 也带 10s AbortSignal | `refresh-loop.ts` / P1 #1368 |
+| 保活撞服务端 5min 冷却拿 429 | `MIN_DELAY_MS` 预除抖动下界 ≈6.18min | `refresh-loop.ts` / P2 #1368 |
+| 保活重试叠在 retry 层上白烧 3 次 | refresh 用 raw fetch 不走 callback-retry | `refresh-loop.ts` / P2 #1368 |
+| 自定义信号 handler 压掉 Node 默认终止 | handler 里显式 `proc.exit()` | `refresh-loop.ts` / P1 #1368 e4da094a59 |
+| `exit(0)` 隐藏终止原因 | `exit(128+signum)`（SIGTERM→143） | `refresh-loop.ts` / P2 #1368 7de77a70d |
+| 保活定时器吊住本该退出的进程 | 两处 `timer.unref()` | `refresh-loop.ts` |
+| stdout 混入非 JSON-RPC 字节毁掉 MCP 会话 | 所有日志走 `console.error`（stderr） | `path-validator.ts` |
+| JSON Schema 被 `server.tool()` 误判成 annotations → 崩 | 强制 `registerTool` 显式三参数 | `server-toolsets.ts` |
+| 未登记工具被误判只读 → 绕过 strict 白名单 | 默认 `A_WRITE_SAFE`，绝不默认只读 | `server-toolsets.ts` / 砚砚 R8 |
+| 设备控制面在受限/未知模式暴露 | `desktopMode` 非空即过滤，fail-fast | `server-toolsets.ts` / R3 P2 F178 |
+| 安静线程每次只读调用都打 freshness API | 门开与否都推进 `lastNoticeToolCallNum` | `server-toolsets.ts` / R2 P2-R2-2 |
+| freshness 报错阻塞工具 | 整函数 `catch {}` fail-open | `server-toolsets.ts` |
+| 未知 reason 被拿去做降级决策 | 类型守卫 + `KNOWN_REASONS` Set 双校验 | `degradation.ts` |
+| `stale_invocation` 降级写回作废状态 | 不在 `DEGRADABLE_AUTH_REASONS` | `degradation.ts` / AC-E6 |
+| `invalid_token`（客户端 bug）被降级掩盖 | 同上，不可降级 | `degradation.ts` |
+| 写类工具忘了考虑降级 | 必须显式声明 `policy`（哪怕 `none`） | `degradation.ts` / AC-E2 |
+| 降级了但无人知晓 | 成功标 `DEGRADED:true`（非 JSON 也包信封） | `degradation.ts` / AC-E4 |
+| 重放旧 outbox（凭证在 body）被新 preHandler 拒 | `legacyHeadersFromBody` 就地升格 | `callback-outbox.ts` / #476 |
+| 两个 flush 抢同一条 | `rename` 原子占用 + `.processing` 后缀排除 | `callback-outbox.ts` |
+| 一个坏文件崩掉整轮 flush | `parseOutboxEntry` 八字段校验，坏则丢弃 | `callback-outbox.ts` |
+| flush 中途异常把文件卡在 `.processing` | catch 里 rename 回原名（best-effort） | `callback-outbox.ts` |
+| 网络抖动丢消息 | retryable 失败落盘，返回 `queued_for_retry` | `callback-outbox.ts` |
+| at-least-once 造成重复副作用 | 三处幂等键（§4.5） | 多处 |
+| 带凭证但无效 → 静默通过 | verify 失败立刻 401 fail-closed | `callback-auth-prehandler.ts` / #474 |
+| 忘调 `requireCallbackAuth` 的路由变裸端点 | 约定每路由首行 require；缺失报 `unknown_invocation` | 各 `callback-*-routes.ts` |
+| refresh 双次滑 TTL | preHandler 见 `callbackAuth` 已填即跳过 | `callback-auth-prehandler.ts` |
+| 混源凭证白烧 cooldown 槽 | `extractCallbackCredentials` 混源返 null | `callbacks.ts` / gpt52 P1 #3 |
+| cooldown 判定在 verify 之后变"装饰性" | refresh 判定放 `preValidation`（早于 preHandler） | `callbacks.ts` / gpt52 P1 |
+| peek 与 verifyLatest 之间状态漂移 | 专属 message "Auth state changed between peek and atomic verify" | `callbacks.ts` |
+| propose 创建了提议但卡片 append 失败 → 幽灵提议 | `store.delete + releaseDedup` 后 rethrow | 三个 `propose-*` |
+| dedup 预留后 create 抛错 → 幽灵指针 | `releaseDedup` 后 rethrow | 三个 `propose-*` |
+| 败者协程重复创建提议 | `reserveDedup` SET NX，败者绝不创建 | 三个 `propose-*` |
+| 老提议被批准后从历史页消失 | 全取 → filter → 排 → slice（非先截断） | `F128ApprovalAdapter` / P2 |
+| 非整数 `limit` 传 Redis ZREVRANGE → 500 | 扇出前 `Math.floor` | `approval-hub-routes.ts` |
+| verify 删记录后通知器拿不到 thread | 只读不删的 `peekRecord` 在 verify 前偷看 | `callback-auth-prehandler.ts` / 砚砚 P1 #1397 |
+| catId=null 系统消息在重载后被当"用户发的" | 带 `source: CALLBACK_AUTH_SOURCE` | `callback-auth-system-message.ts` / 砚砚 P1 #1397 |
+| 两个并发 notify 同 tuple 发重复卡片 | 同步预留 dedup 槽再 await append | `callback-auth-system-message.ts` / P2 #1397 |
+| notify append 失败后 5min 内重试被静默抑制 | 失败回滚 dedup 槽（仅当仍持有） | `callback-auth-system-message.ts` |
+| 一 thread 的 hide 抑制掉别 thread 同 tuple | dedupKey 含 threadId + userId | `callback-auth-system-message.ts` / P1 #1397 |
+| dedup map 在长活进程里无限增长（内存泄漏） | 每次 notify 前 `pruneExpired` | `callback-auth-system-message.ts` / P2 #1397 & #1427 |
+| 遥测环形缓冲负数取模越界 | `((slot % N) + N) % N` | `callback-auth-telemetry.ts` |
+| agent-key 明文泄露 | 存 SHA-256 加盐哈希，不存明文 | `AgentKeyRegistry.ts` |
+| Antigravity sidecar 文件被本机他人读 | `chmod 0o600` | `antigravity-agent-key-sidecar.ts` |
+| 轮换后老 key 立刻失效打断在途请求 | `graceUntil` 接管过期判定，宽限 24h | `AgentKeyRecord` |
+| 云端 remote-spike 继承 invocation 凭证压掉 agent-key | env 有 invocation 凭证即启动失败 | `remote-spike.ts` |
+| 裸 catId 粘进 initialMessage 致 dispatch 顺序错 | `normalizeCatIdMentionsInText` | `F128 propose-thread` |
+
+---
+
+## 6. 可观测性：出问题怎么查
+
+### 6.1 鉴权失败遥测（`callback-auth-telemetry.ts` 全文级）
+
+**唯一入口 `recordCallbackAuthFailure(record)`**——注释明说"所有 401 emission site 都漏斗过它，保证不管哪个 hook 检出失败，observability 都一致"。它一次做四件事：
+
+```ts
+export function recordCallbackAuthFailure(record: { reason; tool; catId? }): void {
+  reasonCounts[record.reason]++; toolCounts[record.tool]++;      // ① 生命周期累计
+  if (record.catId) byCat[record.catId]++;
+  totalFailures++;
+
+  recentSamples.push({ at: now(), ...record });                 // ② 最近 100 条样本（超了 splice 掉头部）
+  if (recentSamples.length > RECENT_SAMPLES_CAP) recentSamples.splice(0, recentSamples.length - 100);
+
+  const hourId = Math.floor(at / HOUR_MS);                       // ③ 24h 环形缓冲
+  const slot = hourId % WINDOW_HOURS;
+  const safeIdx = ((slot % WINDOW_HOURS) + WINDOW_HOURS) % WINDOW_HOURS;   // ← 负数取模防御
+  if (buckets[safeIdx].hourId !== hourId) buckets[safeIdx] = freshBucket(hourId);  // 槽轮转即清零
+  // ...累加 bucket.total / byReason / byTool / byCat
+
+  const attributes = { [CALLBACK_REASON]: record.reason, [CALLBACK_TOOL]: record.tool };
+  if (record.catId) attributes[AGENT_ID] = record.catId;
+  callbackAuthFailures.add(1, attributes);                       // ④ OTel counter
+}
+```
+
+**四个精确点**：
+- **OTel counter 名 `cat_cafe.callback_auth.failures{tool, cat, reason}`**。`cat` 属性对面板/匿名请求会缺失——注释说 "OTel SDK drops undefined values"，所以直接不塞。
+- **`tool` 维度是路由名不是 MCP 工具名**（§3.4 的 `callbackToolFromUrl` 只取 `/api/callbacks/` 后第一段）——读 dashboard 时必须记住 `post-message` ≠ `cat_cafe_post_message`。
+- **环形缓冲的槽轮转**：24 个桶，`buckets[idx].hourId !== hourId` 时整桶替换成 `freshBucket`——这样"读到的桶"永远只含当前那个小时的数据，过期的自动失效，不需要定时清理。
+- **`((slot % N) + N) % N`** 是防御性负数取模——虽然 `hourId` 恒正，但这是"别让将来某个改动引入负 index 越界"的护栏。`__setNowForTest` 注入假钟，让 24h 窗口能被确定性单测。
+
+**徽标语义**（D2b-2 rev3）：HubButton 红点用的是 `unviewedFailures24h`（24h 内且发生在 `lastViewedAt` 之后的失败数），不是 `totalFailures24h`——用户点开看板就 `mark-viewed` 刷新 `lastViewedAt`，红点清零。注释坦白这是单用户 MVP 的 module-global，F077 多用户落地后要按 userId 分。`recordLegacyFallbackHit` 单独统计"还在用 body/query 传凭证"的命中数，是判断能不能删 legacy 兼容窗口的依据。
+
+### 6.2 401 就地富块通知（`callback-auth-system-message.ts` 全文级）
+
+`CallbackAuthSystemMessageNotifier.notify()` 的完整闸门序列：
+
+```ts
+async notify(params): Promise<boolean> {
+  const now = this.now();
+  this.pruneExpired(now);                                        // ① 先剪枝，再判断（顺序关键）
+
+  if (!SURFACEABLE_REASONS.has(params.reason)) return false;     // ② 只有 expired/invalid_token 才发
+  if (BACKGROUND_HEARTBEAT_TOOLS.has(params.tool)) return false; // ③ refresh-token 等心跳不发
+
+  const key = dedupKey(params);                                  // reason:tool:catId:threadId:userId
+  const state = this.dedup.get(key);
+  if (state?.hiddenAt !== undefined && now - state.hiddenAt < HIDE_WINDOW_MS) return false;   // ④ 用户 hide 了 24h 内静默
+  if (state && state.hiddenAt === undefined && now - state.lastSentAt < DEDUP_WINDOW_MS) return false;  // ⑤ 5min 去重
+
+  this.dedup.set(key, { lastSentAt: now });                      // ⑥ 同步预留槽（在 await 之前！）
+  let stored;
+  try {
+    stored = await this.messageStore.append({ userId, catId: null, source: CALLBACK_AUTH_SOURCE, ... });
+  } catch (err) {
+    const current = this.dedup.get(key);                         // ⑦ append 失败回滚槽（仅当仍持有）
+    if (current && current.lastSentAt === now && current.hiddenAt === undefined) this.dedup.delete(key);
+    throw err;
+  }
+  this.socketManager.broadcastToRoom(`thread:${threadId}`, 'connector_message', {...});
+  return true;
+}
+```
+
+**五处 review 埋在这一个方法里，全值得复述**：
+- **① prune 必须在任何 early-return 之前**（P2 #1427）：否则一个"主要看到被抑制的心跳失败"的进程永远不会走到 prune，dedup entry 累积，部分重新引入 prune 本要修的内存驻留。
+- **⑥ 同步预留槽**（P2 #1397）：两个并发 notify 同 tuple，若都先 await append 再写 dedup，会双双穿过 ④⑤ 闸门、都发卡片（爆发式 401 = 刷屏）。所以在 await 之前就 `dedup.set`。
+- **⑦ 失败回滚**：append 抛错时删掉刚预留的槽，否则 5min 内的重试被静默吞掉；但只在"我还持有这个槽"（`lastSentAt === now`）时删，避免删掉后来并发者写的槽。
+- **dedupKey 含 threadId + userId**（P1 #1397）：否则一个 thread 里 hide 掉某 tuple 会连带静默掉别的 thread/租户的同 tuple。
+- **`source: CALLBACK_AUTH_SOURCE` + `catId: null`**（砚砚 P1 #1397）：不带 source 的话，`messages.ts` 时间线在重载时会把 catId=null 的消息分类成 `user`，让这条警告看起来像人自己发的。
+
+`pruneExpired` 的过期判定：`hiddenAt` 存在则 `hiddenAt + 24h`，否则 `lastSentAt + 5min`。`__getDedupSizeForTest` 是给"内存不增长"回归测试用的接缝。
+
+**一个前端坑**（注释直说）：通知走 rich block，但 `SystemNoticeBar` 目前**不渲染** `extra.rich.blocks`，只有消息过 `ConnectorBubble` 才渲染——所以这条就地通知的可见性取决于它落进哪种气泡。
+
+### 6.3 三个 debug 端点 + 查问题顺序
+
+`callback-auth-debug.ts`：`snapshot`（当前失败样本 + 24h 聚合）/ `mark-viewed`（刷 `lastViewedAt` 清徽标）/ `hide-similar`（按 tuple 静默 24h，即写 `hiddenAt`）。
+
+```
+猫说"发不出消息"
+  → 看 cat_cafe.callback_auth.failures{reason} 哪个维度在涨：
+      expired 多          → 保活没跑（查 [refresh-loop] 日志 / timer 是否被 unref 后进程早退）
+      stale_invocation 多 → 同 thread/cat 起了新 invocation（正常，老的该退场）
+      missing_creds 多    → spawn 时 env 没注入（查 [05 章] 凭证注入）
+      agent_key_* 多      → 云端/Antigravity 路径，查 agent-key TTL / revoke / sidecar
+  → outbox 堆积（~/.cat-cafe/callback-outbox/ 里 *.json 变多）→ API 侧持续失败，看 lastError 字段
+  → 工具调用挂住不返回 → 查是否命中没带 AbortSignal 的老路径（现应全带）
+  → dashboard 里 tool 维度看不懂 → 记住那是路由名不是 MCP 工具名
+```
+
+---
+
+## 7. 面试追问应对
+
+**Q1：你们给猫暴露了多少工具，怎么组织？**
+> 「98 个工具，六个 toolset（collab/memory/signals/audio/finance/limb），做了 split 拓扑——六个分体入口各挂一个 toolset，客户端按需挂载，而不是一个 all-in-one 把 98 个工具一次性塞进 LLM 的 tool 列表（token 成本 + 选择噪音都爆炸）。`index.ts` 的 all-in-one 只作向后兼容保留。audio 是 F195 补的——原来只在 all-in-one 注册，导致 split 拓扑的 Codex 看不到它。」
+
+**Q2：注册工具踩过什么坑？**
+> 「必须用 `server.registerTool(name, config, cb)` 而不是 `server.tool()`。因为 `tool()` 的重载解析器用启发式判断某参数是 inputSchema 还是 annotations，我们的 plain JSON Schema 过不了它的 Zod 检查，被误判成 annotations，handler 槽位整体后移，运行时崩。而且数组里同时有两种 schema——大多数是 Zod raw shape，limb 是 plain JSON Schema——靠有没有 `type`+`properties` 键判别。」
+
+**Q3：token 会过期，长任务怎么办？**
+> 「invocation token TTL 2 小时——原来 10 分钟，但猫常跑 20-40 分钟，首个 callback 就 401。长会话靠后台保活循环续：间隔是 `clamp(剩余TTL/4, 6.18min, 30min)` 乘 ±15% 抖动。那个 6.18 分钟不是拍的——服务端冷却 5 分钟，如果下界直接写 5 分钟，抖动 0.85 倍会掉到 4.25 分钟撞冷却拿 429，所以预先 `5×1.05/0.85` 把下界抬上去。**教训是加了抖动之后，'下界'约束的不再是你写的值，而是值乘抖动下界。** 而且保活刻意不做成工具——refresh is plumbing not a cognitive action，做成工具猫会出于错误理由主动调它。」
+
+**Q4：回调失败的三层兜底？**
+> 「瞬时（408/429/5xx）走重试，实际是 4 次尝试（第 0 次 + 3 次退避 [1s,2s,4s]），每次带独立 10s AbortSignal——没有 signal 的 fetch 在半开 TCP 上永久 pending，工具永不返回。重试还失败就落 outbox，文件名时间戳前缀做 FIFO、rename 做原子占用、上限 10 次、返回 `queued_for_retry` 让猫觉得成功了（因为迟早会送到）。永久失败走降级框架，但只有 expired / unknown_invocation 可降；invalid_token 不降（客户端 bug，降了掩盖）；**stale_invocation 绝不降，因为它意味着这次 invocation 已被同 thread/cat 的新 invocation 取代，降级会把作废状态写回去。**」
+
+**Q5：outbox 是 at-least-once，会重复写吧？**
+> 「会，所以服务端幂等，这是配套的另一半。propose 用 clientRequestId 做 SET NX 预留；invocation 内有 clientMessageIds 集合；multi-mention 有 idempotencyKey；球权有 sourceEventId。outbox 保证至少送到，这些键保证多送的不产生副作用——只做 outbox 制造重复，只做幂等网络抖动就丢消息。」
+
+**Q6：猫想改自己的关系档案，直接改吗？**
+> 「不能，走 propose。三个 propose 路由都是提议不是执行，汇到 approval-hub 等人批。共享一个七步骨架：requireAuth → zod → isLatest（不是最新 invocation 就返回 stale_ignored，注意是 200 不是错误）→ clientRequestId 幂等快路径 → SET NX 预留 dedup（败者绝不创建）→ store.create（抛错要 releaseDedup）→ append 确认卡（抛错要 delete proposal + releaseDedup，绝不留没有卡片的幽灵提议）→ setCardMessageId 失败只记 warning 不回滚（卡片已经在用户屏幕上了，靠后续扫描自愈）。改 primer 那条还有乐观锁：propose 时记 baseContentHash，approve 时重读比对。」
+
+**Q7：approval-hub 为什么用 adapter 模式？**
+> 「四个 feature（F128/F193/F225/F231）底层 store 形状完全不同——方法名、有没有 settled、STALE 时长（7d/3d/24h/7d）、inlineApprovable、decidedAt 从哪个字段来全不一样。adapter 把各自的 pending/settled 映射成统一的 ApprovalItem DTO，Hub 路由只 `Promise.all(adapters.map(...))` 再按时间排。F231 没实现 listSettled，settled 路由用 `filter(a => typeof a.listSettled === 'function')` 把它跳过。新增 feature 只加一个 adapter，Hub 不动。」
+
+**Q8：没带凭证的请求会怎样？这不是无鉴权吗？**
+> 「preHandler 在没有任何凭证时静默放行——因为同一个 Fastify 实例还挂着浏览器面板路由，走 session 鉴权。代价是 callback 路由如果忘了首行调 `requireCallbackAuth` 就变裸端点，所以这是靠约定强制的。`requireCallbackAuth` 缺 decoration 时上报 unknown_invocation 而不是 expired——注释说这里其实不知道 registry 状态，报 unknown 更安全。而 refresh-token 的 cooldown 判定放 `preValidation` 而不是 preHandler，因为 Fastify 生命周期里 route-level preValidation 早于 plugin-scoped preHandler，而 preHandler 的 verify 会滑 TTL——判定放它之后的话 429 就只是装饰性的，滥用者仍然把 token 续上了。」
+
+**Q9（安全向）：agent-key 的凭证安全怎么做的？**
+> 「secret 256 位随机（randomBytes 32），存 sha256(secret+salt) 不是明文，泄露库也拿不到 secret。TTL 45 天，轮换有 24h 宽限——`graceUntil` 一旦存在就接管过期判定，让在途请求不被立刻打断。Antigravity 读不了 env 注入的 token，靠 sidecar 文件传 key，文件 chmod 0o600。云端 remote-spike 入口 fail-closed：env 里意外继承 invocation 凭证（会因优先级压掉 agent-key）时启动直接失败。」
+
+**Q10：401 之后猫知道发生了什么吗？**
+> 「知道。鉴权失败时往帖子里发一条 rich block 系统消息，猫下一轮一定看到。但只有 surfaceable 的 reason（expired / invalid_token）才发，心跳工具（refresh-token）不发——用户对心跳失败没有可操作的响应。发之前必须靠 peekRecord 拿到 threadId/catId，因为 verify 在 expired 时已经把记录删了（getRecord 也删，所以专门加了只读不删的 peekRecord）。而且并发 notify 会同步预留 dedup 槽再 await，防止爆发式 401 刷屏；消息带 connector source，否则重载后会被当成用户自己发的。」
+
+---
+
+## 8. 本篇速查表
+
+### 端点与文件规模
+```
+mcp-server: 43 文件 / ~10413 行 · 98 工具 · 6 toolset · 6 分体入口 + 1 all-in-one
+callback:   32 文件 / ~10649 行 · 4 个是纯 helper → 实际 44 个 HTTP 端点
+agent-key:  6 文件 / 446 行   approval-hub: 8 文件 / 815 行   limb: 11 文件 / 1297 行
+```
+
+### 鉴权
+| 项 | 值 |
+|---|---|
+| 钥匙一 | `CAT_CAFE_INVOCATION_ID` + `CAT_CAFE_CALLBACK_TOKEN`（成对才有效） |
+| HTTP 头 | `x-invocation-id` / `x-callback-token` / `x-agent-key-secret` |
+| 优先级 | invocation **永远压过** agent-key |
+| invocation TTL | 2h（原 10min，因猫常跑 20-40min 改） |
+| agent-key | TTL 45d / 宽限 24h / SHA-256 加盐 / sidecar chmod 600 |
+| fail 行为 | 无凭证 no-op；半个或无效 → 立刻 401 fail-closed |
+
+### 九个失败 reason
+```
+可降级：  expired, unknown_invocation
+不可降级：invalid_token（客户端 bug）, stale_invocation（会写脏数据）, missing_creds
+agent-key：agent_key_expired / _revoked / _unknown / _scope_mismatch(保留位)
+可就地通知：仅 expired, invalid_token（心跳工具即使 surfaceable 也不发）
+```
+
+### 四层可靠性常量
+| 层 | 常量 | 值 |
+|---|---|---|
+| 保活 | 服务端冷却 / 客户端下界 / 上限 | 5min / ≈6.18min / 30min |
+| 保活 | 抖动 / tick 超时 / 退出码 | [0.85,1.15] / 10s / 128+signum |
+| 重试 | 尝试次数 / 退避 / 单次超时 / 重试码 | 4 次(0+3) / [1s,2s,4s] / 10s / 408,429,≥500 |
+| outbox | 批量 / 最多尝试 / 并发原语 | 20 / 10 / rename |
+| freshness | 间隔 / 上限 | 每 5 次只读 / 每 invocation 3 条 |
+| 通知 | 去重窗 / hide 窗 | 5min / 24h |
+| 遥测 | 样本上限 / 窗口 | 100 / 24 桶(每桶 1h) |
+
+### 降级三原则 + 决策树
+```
+explicitness > silent default   写类工具必须声明 policy（哪怕 none）
+瞬时归重试，永久归降级          两层不重叠
+成功标 DEGRADED:true            非 JSON 也包信封 {DEGRADED:true, payload}
+决策树：成功→原样 / 非鉴权→原样 / 不可降→原样 / none→加提示 / custom→降级+标记
+```
+
+### 三个 propose 的七步骨架
+```
+requireAuth → zod → isLatest(否则 stale_ignored 200) → clientRequestId 幂等快路径
+→ SET NX 预留 dedup（败者不创建）→ store.create（抛错 releaseDedup）
+→ append 确认卡（抛错 delete+releaseDedup）→ setCardMessageId(失败只 warn) → 广播
+```
+
+### 四个 approval adapter
+```
+F128 开thread   STALE 7d  inlineApprovable=false  有 settled(全取→filter→排→slice)
+F193 派活       STALE 3d  inlineApprovable=true   有 settled  唯一会 throw 的 toSettledItem
+F225 session接力 STALE 24h inlineApprovable=false  有 settled  A4 gate 返 200 不是错误
+F231 改primer   STALE 7d  inlineApprovable=false  无 settled(被 filter 跳过)  有乐观锁
+```
+
+### annotation 红线
+```
+未登记工具 → 默认 A_WRITE_SAFE（写、非破坏），绝不默认只读
+（误标只读 = strict-whitelist 模式下漏出设备控制面 = 安全漏洞）
+limb：默认全暴露；任何 desktopMode（含拼错）→ 走过滤 fail-fast
+```
+
+---
+
+→ [返回目录](README.md)
+
