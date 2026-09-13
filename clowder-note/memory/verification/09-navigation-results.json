@@ -1,0 +1,528 @@
+{
+  "schemaVersion": 1,
+  "chapter": "09-多知识域与记忆导航",
+  "studyDate": "2026-09-12",
+  "startedAt": "2026-09-12T10:47:49.817Z",
+  "finishedAt": "2026-09-12T10:47:50.111Z",
+  "status": "passed",
+  "allPassed": true,
+  "expectedAssertions": 71,
+  "passedAssertions": 71,
+  "assertionCounting": "只累计退出成功且 JSON assertions 等于原预期的完整程序组；不把未知的部分执行计为通过。",
+  "environment": {
+    "nodeVersion": "v24.14.0",
+    "platform": "win32",
+    "architecture": "x64",
+    "sourceRoot": "D:\\AI\\clower-1\\clowder-ai",
+    "expectedCommit": "6868041cae3b9dcab163a1fd85845b9778c3adc5",
+    "actualCommit": "6868041cae3b9dcab163a1fd85845b9778c3adc5",
+    "trackedSourceClean": true,
+    "scriptPath": "D:\\AI\\clower-1\\clowder-note\\memory\\verification\\09-navigation-checks.mjs",
+    "scriptSha256": "2e746de8d13f20f306f04d47f5947a0234fbba2373d34df1ec4d58cfbe607a58"
+  },
+  "scope": {
+    "originalPrograms": "原 40 与 31 断言程序保存在脚本注释区块，提取后分别以原 Node stdin 方式执行。",
+    "search": "固定模拟 store；不执行真实 FTS 或 embedding。",
+    "sqlite": "仅 :memory:；Event 使用 Node 内置 SQLite 薄适配器，不是生产 better-sqlite3 集成验证。",
+    "capsule": "从原脚本提取函数；文件读取与 primer 可访问性为模拟输入。",
+    "liveWriter": "从 index.ts 提取 callback；模拟 episode ref/log；用未初始化内存 Store 注入失败。",
+    "productionGuarantees": [
+      "不证明真实 HTTP、鉴权或完整租户隔离。",
+      "不证明完整 plan Loader、magic-word detector 或完整 L0 编译。",
+      "不证明并发争用、生产驱动、磁盘耐久性、断电恢复或迁移全集。",
+      "不证明真实死信文件写入、自动重放或端到端恰好一次。",
+      "没有连接真实服务、执行真实索引或创建实际外部 collection。"
+    ]
+  },
+  "groups": [
+    {
+      "id": "40",
+      "expectedAssertions": 40,
+      "reportedAssertions": 40,
+      "passed": true,
+      "sourceProgramSha256": "c2707bd4e4e645561992ed7288bc7384b7d9196b276d7171b22facb943e3c88a",
+      "executable": "D:\\nodejs\\node.exe",
+      "args": [
+        "--experimental-transform-types",
+        "--input-type=module",
+        "-"
+      ],
+      "cwd": "D:\\AI\\clower-1\\clowder-ai",
+      "exitCode": 0,
+      "signal": null,
+      "stderr": "(node:33632) ExperimentalWarning: SQLite is an experimental feature and might change at any time\n(Use `node --trace-warnings ...` to show where the warning was created)\n(node:33632) ExperimentalWarning: Transform Types is an experimental feature and might change at any time\n(node:33632) ExperimentalWarning: stripTypeScriptTypes is an experimental feature and might change at any time\n",
+      "output": {
+        "assertions": 40,
+        "search": {
+          "public": [
+            "P",
+            "G",
+            "X",
+            "L",
+            "Y"
+          ],
+          "privateLibrary": [
+            "P",
+            "G",
+            "L"
+          ],
+          "privateExplicit": [
+            "P",
+            "G",
+            "X",
+            "L",
+            "Y"
+          ],
+          "redacted": {
+            "anchor": "research:payments:doc/retry",
+            "kind": "research",
+            "status": "active",
+            "title": "[redacted — private collection]",
+            "updatedAt": "2026-09-06T11:00:00.000Z"
+          },
+          "partial": [
+            "P",
+            "X",
+            "L",
+            "Y"
+          ],
+          "partialMeta": {
+            "degraded": true,
+            "degradeReason": "evidence_store_error"
+          },
+          "missingStore": [
+            [
+              "project:cat-cafe",
+              "ok"
+            ],
+            [
+              "global:methods",
+              "ok"
+            ],
+            [
+              "research:payments",
+              "skipped"
+            ]
+          ]
+        },
+        "graph": {
+          "nodes": [
+            "P",
+            "L",
+            "G",
+            "X",
+            "T",
+            "Y"
+          ],
+          "edges": [
+            [
+              "P",
+              "L",
+              "doc_link"
+            ],
+            [
+              "P",
+              "G",
+              "related_to"
+            ],
+            [
+              "P",
+              "X",
+              "wikilink"
+            ],
+            [
+              "L",
+              "T",
+              "related_to"
+            ],
+            [
+              "X",
+              "Y",
+              "doc_link"
+            ]
+          ],
+          "privateNodes": [
+            [
+              "P",
+              false
+            ],
+            [
+              "L",
+              false
+            ],
+            [
+              "G",
+              false
+            ],
+            [
+              "[redacted:1]",
+              true
+            ],
+            [
+              "T",
+              false
+            ],
+            [
+              "[redacted:2]",
+              true
+            ]
+          ],
+          "filtered": [
+            "P",
+            "L"
+          ],
+          "fuzzy": [
+            [
+              "P",
+              "title",
+              6,
+              2.7
+            ],
+            [
+              "X",
+              "title",
+              6,
+              0.9
+            ],
+            [
+              "G",
+              "title",
+              6,
+              null
+            ],
+            [
+              "L",
+              "summary",
+              3,
+              1.7000000000000002
+            ]
+          ]
+        },
+        "recent": {
+          "public": [
+            "P",
+            "G",
+            "X"
+          ],
+          "groups": [
+            {
+              "key": "global:methods",
+              "type": "collection",
+              "label": "Methods",
+              "count": 1,
+              "available": 1
+            },
+            {
+              "key": "project:cat-cafe",
+              "type": "collection",
+              "label": "Project",
+              "count": 1,
+              "available": 3
+            },
+            {
+              "key": "research:payments",
+              "type": "collection",
+              "label": "Payments",
+              "count": 1,
+              "available": 1
+            }
+          ],
+          "private": [
+            "P",
+            "L",
+            "G"
+          ]
+        },
+        "coverage": {
+          "calls": [
+            {
+              "store": "project:cat-cafe",
+              "query": "支付重试",
+              "scope": "docs",
+              "mode": "hybrid",
+              "limit": 25
+            },
+            {
+              "store": "project:cat-cafe",
+              "query": "支付重试",
+              "scope": "threads",
+              "mode": "hybrid",
+              "limit": 20
+            },
+            {
+              "store": "project:cat-cafe",
+              "query": "稳定业务键",
+              "scope": "docs",
+              "mode": "hybrid",
+              "limit": 5
+            },
+            {
+              "store": "project:cat-cafe",
+              "query": "thread-t42",
+              "scope": "threads",
+              "mode": "hybrid",
+              "limit": 3
+            }
+          ],
+          "result": {
+            "query": "支付重试",
+            "totalHits": 3,
+            "bySource": {
+              "docs": {
+                "count": 2,
+                "cap": 25
+              },
+              "threads": {
+                "count": 1,
+                "cap": 20
+              },
+              "conventionGraph": {
+                "count": 0,
+                "cap": 10
+              }
+            },
+            "matrix": [
+              {
+                "anchor": "doc:retry",
+                "title": "支付重试方案",
+                "kind": "plan",
+                "matchType": "direct",
+                "confidence": 1,
+                "source": "docs",
+                "sourcePath": "plans/retry.md",
+                "drillDown": {
+                  "tool": "cat_cafe_read_file_slice",
+                  "params": {
+                    "path": "docs/plans/retry.md",
+                    "startLine": "1",
+                    "endLine": "120"
+                  },
+                  "hint": "打开文件切片：read_file_slice(path=\"docs/plans/retry.md\", startLine=1, endLine=120)"
+                }
+              },
+              {
+                "anchor": "thread-t42",
+                "title": "为什么重复扣款",
+                "kind": "thread",
+                "matchType": "direct",
+                "confidence": 1,
+                "source": "threads"
+              },
+              {
+                "anchor": "LL-042",
+                "title": "幂等键教训",
+                "kind": "lesson",
+                "matchType": "alias",
+                "confidence": 0.7,
+                "source": "docs",
+                "expansionProvenance": {
+                  "source": "frontmatter-alias",
+                  "via": "keyword:稳定业务键",
+                  "confidence": "heuristic"
+                }
+              }
+            ],
+            "gaps": [],
+            "degraded": [
+              {
+                "source": "convention-graph",
+                "reason": "convention graph unavailable"
+              }
+            ]
+          }
+        },
+        "perspective": {
+          "runId": "run-demo",
+          "planId": "F042/retry-proof",
+          "startedAt": "2026-09-12T12:00:00.000Z",
+          "actorCatId": "codex",
+          "effectiveInputs": {
+            "topic": "补偿"
+          },
+          "steps": [
+            {
+              "id": "s1",
+              "type": "search_evidence",
+              "status": "ok",
+              "startedAt": "2026-09-12T12:00:00.000Z",
+              "finishedAt": "2026-09-12T12:00:00.000Z",
+              "queryOrAnchor": "重试",
+              "hitCount": 3,
+              "degraded": false
+            },
+            {
+              "id": "s2",
+              "type": "open_anchor",
+              "status": "warning",
+              "startedAt": "2026-09-12T12:00:00.000Z",
+              "finishedAt": "2026-09-12T12:00:00.000Z",
+              "openedCount": 1
+            },
+            {
+              "id": "s3",
+              "type": "open_anchor",
+              "status": "ok",
+              "startedAt": "2026-09-12T12:00:00.000Z",
+              "finishedAt": "2026-09-12T12:00:00.000Z",
+              "openedCount": 0
+            }
+          ],
+          "candidateAnchors": [
+            {
+              "anchor": "doc:retry",
+              "title": "支付重试方案",
+              "summary": "响应丢失也不能重复扣款",
+              "sourcePath": "plans/retry.md",
+              "drillDown": {
+                "tool": "cat_cafe_read_file_slice",
+                "params": {
+                  "path": "docs/plans/retry.md",
+                  "startLine": "1",
+                  "endLine": "120"
+                },
+                "hint": "打开文件切片：read_file_slice(path=\"docs/plans/retry.md\", startLine=1, endLine=120)"
+              },
+              "sourceStepId": "s1",
+              "rank": 1
+            },
+            {
+              "anchor": "global:skill/retry",
+              "title": "通用重试方法",
+              "summary": "失败分类后再重试",
+              "sourceStepId": "s1",
+              "rank": 2
+            },
+            {
+              "anchor": "research:payments:doc/retry",
+              "title": "支付重试案例",
+              "summary": "同一订单只能生效一次",
+              "sourcePath": "retry.md",
+              "drillDown": {
+                "tool": "cat_cafe_read_file_slice",
+                "params": {
+                  "path": "cat-cafe://collection/research%3Apayments/retry.md",
+                  "startLine": "1",
+                  "endLine": "120"
+                },
+                "hint": "打开文件切片：read_file_slice(path=\"cat-cafe://collection/research%3Apayments/retry.md\", startLine=1, endLine=120)"
+              },
+              "sourceStepId": "s1",
+              "rank": 3
+            }
+          ],
+          "openedAnchors": [
+            {
+              "anchor": "doc:retry",
+              "status": "route_identified",
+              "tool": "cat_cafe_read_file_slice",
+              "content": "打开文件切片：read_file_slice(path=\"docs/plans/retry.md\", startLine=1, endLine=120)",
+              "sourceStepId": "s1",
+              "stepId": "s2"
+            },
+            {
+              "anchor": "global:skill/retry",
+              "status": "unsupported",
+              "sourceStepId": "s1",
+              "stepId": "s2",
+              "error": "Unsupported anchor type: global:skill/retry has no drillDown hint"
+            }
+          ],
+          "warnings": [
+            {
+              "stepId": "s2",
+              "code": "open_anchor_failed",
+              "message": "Unsupported anchor type: global:skill/retry has no drillDown hint"
+            }
+          ]
+        }
+      },
+      "error": null
+    },
+    {
+      "id": "31",
+      "expectedAssertions": 31,
+      "reportedAssertions": 31,
+      "passed": true,
+      "sourceProgramSha256": "8894e88e82f2ae77a484393561dae4d167f4b8e3cd6d4c5630c36696cf1d3486",
+      "executable": "D:\\nodejs\\node.exe",
+      "args": [
+        "--experimental-transform-types",
+        "--input-type=module",
+        "-"
+      ],
+      "cwd": "D:\\AI\\clower-1\\clowder-ai",
+      "exitCode": 0,
+      "signal": null,
+      "stderr": "(node:31884) ExperimentalWarning: Transform Types is an experimental feature and might change at any time\n(Use `node --trace-warnings ...` to show where the warning was created)\n(node:31884) ExperimentalWarning: SQLite is an experimental feature and might change at any time\n(node:31884) ExperimentalWarning: stripTypeScriptTypes is an experimental feature and might change at any time\n",
+      "output": {
+        "assertions": 31,
+        "capsule": {
+          "missing": "",
+          "valid": "## 主人画像\n\n先给结论。\n再给证据。\n\n关系轨迹: private/profile/relationship/codex-primer.md（开局可读，按需 recall）",
+          "readOperations": [
+            "landy-capsule.md"
+          ],
+          "accessOperations": [
+            "codex-primer.md"
+          ],
+          "visibleChars": 10,
+          "oversized": "USER_CAPSULE exceeds 300-character limit: 301 characters in D:\\AI\\clower-1\\clowder-ai\\fixture-profile\\landy-capsule.md. Capsule must be ≤300 chars (KD-7). Trim content or move overflow to primer."
+        },
+        "events": {
+          "firstInserted": true,
+          "duplicateInserted": false,
+          "upgrade": {
+            "inserted": false,
+            "sameId": true,
+            "confidence": "high",
+            "timestamp": 100
+          },
+          "ownerRows": [
+            {
+              "owner": "bob",
+              "thread": "t42",
+              "message": "m101",
+              "type": "demo-brake",
+              "confidence": "mid"
+            },
+            {
+              "owner": "alice",
+              "thread": "t42",
+              "message": "m101",
+              "type": "demo-brake",
+              "confidence": "high"
+            }
+          ],
+          "failedWrite": {
+            "failureInjected": "store intentionally not initialized",
+            "referenceCount": 0,
+            "deadLetter": {
+              "record": {
+                "type": "demo-brake",
+                "trigger": "human_brake",
+                "cat": "codex",
+                "threadId": "t42",
+                "messageId": "m101",
+                "timestamp": 1789210070099,
+                "summary": "停止重复扣款",
+                "cognitiveTransition": "user_brake",
+                "relatedHarness": null,
+                "confidence": "high"
+              },
+              "ownerUserId": "alice",
+              "error": "Error: EventMemoryStore not initialized — call initialize() first",
+              "failedAt": 1789210070099
+            }
+          }
+        }
+      },
+      "error": null
+    }
+  ],
+  "diagnostics": [
+    {
+      "stage": "git",
+      "stderr": "warning: unable to access 'C:\\Users\\Administrator/.config/git/ignore': Permission denied"
+    }
+  ]
+}

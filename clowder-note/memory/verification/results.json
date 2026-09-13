@@ -1,0 +1,741 @@
+{
+  "sourceFingerprints": {
+    "packages/api/src/domains/memory/schema.ts": "06120411eecef3f56d8431d079203e8f0504bfcd0cd4aa49f97e5e57ce40cdb7",
+    "packages/api/src/domains/memory/fts-query-builder.ts": "3eea45ca8f9f0220686c6d8c7a80c591c936894fed7fc4d89a03aa2f934bfd5b",
+    "packages/api/src/domains/memory/lexical-backfill.ts": "6033f8a158a5cdb75079e8913e86262a53a25ec3e1e4a90c87f14e4c6ab9c4cc",
+    "packages/api/src/domains/memory/AbstractiveSummaryClient.ts": "c12c57639c0df30657ef5c23961599d36a078a7e99df60365d8b22c96f8e0b25",
+    "packages/api/src/domains/memory/SummaryCompactionTask.ts": "e957de8b018ca2426f0b05f83bd83ae3206375f0560fdc250774db8e51883b67",
+    "packages/api/src/domains/memory/summary-config.ts": "e6a9f1f596d8159876db797dc92c42582d3e66f795f58ccdac8df86c8392c73c",
+    "packages/api/src/domains/memory/PassageVectorStore.ts": "e07cef8ece2b8ca0c4183ce2bc3b80c6d30f50c3b25e7a854892d26e07b1b9a8",
+    "packages/api/src/domains/memory/VectorStore.ts": "9e685dd31ebca752637d02b86cf9ae966b707208fbd858e97aaca07df920c8f4",
+    "packages/api/src/domains/memory/f163-duplicate-scanner.ts": "7762350afe34f088f003830fa9d981a3a6986e1e75accc51277fb5ed7268554b",
+    "packages/api/src/domains/memory/f163-contradiction-detector.ts": "fef47a9d12eb727d59a96e9f6d3b79040f654c36358d35da6bce6a9ca835ca54",
+    "packages/api/src/domains/memory/RecallEventCorrelator.ts": "d0097f1a47a699c7007e367c11a2603562c3643ee9f8a265fff601a488fd823e",
+    "packages/api/src/domains/memory/RecallMetricsComputer.ts": "334580d3589840ac8f7de451e986ab0238d675615c03322640a7149d54a96a6f",
+    "packages/api/src/domains/memory/recall-target-match.ts": "f2279383ad34e75156f493f021c03954cd3d08ba670ce32606e6b2a5650e251f",
+    "packages/api/src/domains/memory/parse-shell-read-paths.ts": "901c2eafcd2d8377ba200e545f8e93c8f171534a817a58964b1299a8a31f78d8",
+    "packages/api/src/domains/memory/EntityRegistry.ts": "c8e539f27839a8035374fc0ec0711405bec7d6681053ba440d8da3c99670e8f6",
+    "packages/api/src/domains/memory/f163-types.ts": "bc331b8d76a858b2cdd821d64b49943159c422c393be67fc6092e17ccb6e1069",
+    "packages/api/src/domains/memory/SqliteEvidenceStore.ts": "a4b61f70b8ad42708791ecdf4078ae4ce403aebbe2f340b778fbba584ba3c70e",
+    "packages/api/src/domains/cats/services/session/extractDecisionSignals.ts": "3e36c9f134c44d6f959e31afe6c6ba76903c99c559648ebcf862cc4374e8a3b8",
+    "packages/api/src/domains/cats/services/session/buildThreadMemory.ts": "df193d0ef0f5f95e64d0134b3dd1192d536f730cadcc58bad0891ac91dd3d915",
+    "packages/api/src/domains/cats/services/session/TranscriptWriter.ts": "4b5e6674c63361da662087867c22a87678facc51320f8d83eec7e2db435ce464",
+    "packages/api/src/domains/cats/services/session/SessionBootstrap.ts": "5f4e9cf05ca2a5f8e5f6a48408296049e8c674c6c69f81f3d4fa18e8e534d0d7",
+    "packages/api/src/domains/cats/services/stores/ports/MemoryGovernanceStore.ts": "082a0d9c0b88ad506a840aeb02d95bbc379e56696df68c602533dd8f58d0562c",
+    "packages/api/src/domains/cats/services/tool-usage/derive-result-summary.ts": "f2f504748529feccde2c2014c43d50221d3800c0f5c629f6c9e2381454c64f81"
+  },
+  "preflightPassed": true,
+  "generatedAt": "2026-09-12T10:47:49.696Z",
+  "sourceCommit": "6868041ca",
+  "runtime": "v24.14.0",
+  "scope": "Original TS imports + selected original SQL/loop snippets; synchronous transaction adapter over Node SQLite :memory:; fixed NN fixtures; no real Redis, embedding, LLM or service startup.",
+  "cases": 39,
+  "passed": 39,
+  "failed": 0,
+  "results": [
+    {
+      "name": "03-query-levels",
+      "passed": true,
+      "evidence": [
+        "\"F102\" \"retry\" \"on\" \"cat\"",
+        "\"F102\" AND \"retry\" AND (\"on\" OR \"cat\")",
+        "\"F102\" OR \"retry\" OR \"on\" OR \"cat\""
+      ]
+    },
+    {
+      "name": "03-relaxation-before-D",
+      "passed": true,
+      "evidence": [
+        {
+          "query": "\"F102\" \"retry\" \"on\" \"cat\"",
+          "hits": []
+        },
+        {
+          "query": "\"F102\" AND \"retry\" AND (\"on\" OR \"cat\")",
+          "hits": [
+            {
+              "anchor": "L-B",
+              "rank": -1.3631162464976883
+            }
+          ]
+        },
+        {
+          "query": "\"F102\" OR \"retry\" OR \"on\" OR \"cat\"",
+          "hits": [
+            {
+              "anchor": "L-B",
+              "rank": -1.3631162464976883
+            },
+            {
+              "anchor": "D-C",
+              "rank": -0.9287738613927105
+            },
+            {
+              "anchor": "F102",
+              "rank": -0.0000017741935483870966
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "03-first-nonempty-is-not-fill-topk",
+      "passed": true,
+      "evidence": {
+        "levels": [
+          {
+            "query": "\"F102\" \"retry\" \"on\" \"cat\"",
+            "hits": [
+              {
+                "anchor": "P-D",
+                "rank": -0.000005956923076923077
+              }
+            ]
+          },
+          {
+            "query": "\"F102\" AND \"retry\" AND (\"on\" OR \"cat\")",
+            "hits": [
+              {
+                "anchor": "P-D",
+                "rank": -0.000005956923076923077
+              },
+              {
+                "anchor": "L-B",
+                "rank": -0.000004514486391571553
+              }
+            ]
+          },
+          {
+            "query": "\"F102\" OR \"retry\" OR \"on\" OR \"cat\"",
+            "hits": [
+              {
+                "anchor": "P-D",
+                "rank": -0.000005956923076923077
+              },
+              {
+                "anchor": "L-B",
+                "rank": -0.000004514486391571553
+              },
+              {
+                "anchor": "D-C",
+                "rank": -0.0000018435754189944133
+              },
+              {
+                "anchor": "F102",
+                "rank": -0.00000180327868852459
+              }
+            ]
+          }
+        ],
+        "selectedFtsStage": 0,
+        "selectedFtsAnchors": [
+          "P-D"
+        ],
+        "requestedLimit": 5
+      }
+    },
+    {
+      "name": "03-keywords-are-not-fts-column",
+      "passed": true,
+      "evidence": {
+        "ftsAnchors": [
+          "L-B",
+          "P-D"
+        ],
+        "keywordOnlyAnchor": "F102"
+      }
+    },
+    {
+      "name": "03-short-query-no-or",
+      "passed": true,
+      "evidence": [
+        "\"F102\" \"retry\" \"cat\""
+      ]
+    },
+    {
+      "name": "03-lexical-coverage-not-frequency",
+      "passed": true,
+      "evidence": {
+        "order": [
+          "A",
+          "B"
+        ],
+        "signals": {
+          "A": {
+            "keywordHits": 1,
+            "titleHits": 0,
+            "textHits": 1
+          },
+          "B": {
+            "keywordHits": 0,
+            "titleHits": 2,
+            "textHits": 2
+          }
+        }
+      }
+    },
+    {
+      "name": "03-four-doc-substring-ranking",
+      "passed": true,
+      "evidence": {
+        "order": [
+          "L-B",
+          "D-C",
+          "F102",
+          "P-D"
+        ],
+        "signals": {
+          "F102": {
+            "keywordHits": 1,
+            "titleHits": 1,
+            "textHits": 3
+          },
+          "L-B": {
+            "keywordHits": 2,
+            "titleHits": 2,
+            "textHits": 3
+          },
+          "D-C": {
+            "keywordHits": 1,
+            "titleHits": 2,
+            "textHits": 2
+          },
+          "P-D": {
+            "keywordHits": 0,
+            "titleHits": 3,
+            "textHits": 4
+          }
+        }
+      }
+    },
+    {
+      "name": "02-10-count-equality-does-not-prove-fts-postings",
+      "passed": true,
+      "evidence": {
+        "docs": 1,
+        "fts": 1,
+        "alphaMatchCount": 0,
+        "note": "source schema WITHOUT synchronization triggers is the intentional broken fixture"
+      }
+    },
+    {
+      "name": "03-entity-boundaries-differ-from-substring",
+      "passed": true,
+      "evidence": {
+        "catWord": true,
+        "catInCatalogue": false,
+        "F1InF10": false,
+        "CJKSubstring": true,
+        "NFKC": "f10"
+      }
+    },
+    {
+      "name": "04-production-rrf-accumulation-loops",
+      "passed": true,
+      "evidence": {
+        "trace": {
+          "1": {
+            "A": 0.03115942028985507,
+            "B": 0.03229166666666666
+          },
+          "1.5": {
+            "A": 0.03840579710144927,
+            "B": 0.040625
+          }
+        },
+        "scope": "actual two accumulation loops, fixed NN fixture; no real vec0 KNN or embeddings"
+      }
+    },
+    {
+      "name": "04-vector-key-is-unambiguous-pair",
+      "passed": true,
+      "evidence": "[\"thread:T/42\",\"msg:[m101]\"]"
+    },
+    {
+      "name": "04-metadata-revision-only-is-not-compared",
+      "passed": true,
+      "evidence": {
+        "same": {
+          "consistent": true,
+          "reason": "ok"
+        },
+        "changed": {
+          "consistent": false,
+          "reason": "model changed: model-a → model-b"
+        }
+      }
+    },
+    {
+      "name": "06-parser-confirmation-is-output-punctuation",
+      "passed": true,
+      "evidence": {
+        "explicit": {
+          "segments": [
+            {
+              "summary": "保留幂等键，避免重复送达产生重复副作用。",
+              "topicKey": "回调重试的幂等策略",
+              "topicLabel": "回调重试的幂等策略",
+              "boundaryReason": "single batch",
+              "boundaryConfidence": "high",
+              "fromMessageId": "m101",
+              "toMessageId": "m102",
+              "messageCount": 2,
+              "candidates": [
+                {
+                  "kind": "decision",
+                  "title": "网络重试必须保持业务幂等",
+                  "claim": "对重复送达的写入使用稳定业务键。",
+                  "why_durable": "Extracted from thread summary",
+                  "evidence": [
+                    {
+                      "threadId": "T42",
+                      "messageId": "m101",
+                      "span": ""
+                    }
+                  ],
+                  "relatedAnchors": [],
+                  "confidence": "explicit"
+                }
+              ]
+            }
+          ]
+        },
+        "plainConfidence": "inferred"
+      }
+    },
+    {
+      "name": "06-parser-multiple-titles-still-one-segment",
+      "passed": true,
+      "evidence": {
+        "segments": 1,
+        "boundary": "single batch"
+      }
+    },
+    {
+      "name": "06-parser-format-fallback-and-noise-rejection",
+      "passed": true,
+      "evidence": {
+        "titleOnly": null,
+        "noMarkdown": {
+          "segments": [
+            {
+              "summary": "没有标题但这是一句足够长而且可以作为摘要的正文",
+              "topicKey": "没有标题但这是一句足够长而且可以作为摘要的正文",
+              "topicLabel": "没有标题但这是一句足够长而且可以作为摘要的正文",
+              "boundaryReason": "single batch",
+              "boundaryConfidence": "high",
+              "fromMessageId": "m101",
+              "toMessageId": "m102",
+              "messageCount": 2
+            }
+          ]
+        },
+        "noisyExplicitCandidates": 0
+      }
+    },
+    {
+      "name": "06-gate-carryover-does-not-bypass-quiet",
+      "passed": true,
+      "evidence": {
+        "tailQuiet": true,
+        "tailHot": false,
+        "tailWithoutCarryover": false
+      }
+    },
+    {
+      "name": "06-production-processThread-205-messages-tail",
+      "passed": true,
+      "evidence": {
+        "state": {
+          "thread_id": "T42",
+          "last_summarized_message_id": "m200",
+          "pending_message_count": 5,
+          "pending_token_count": 10,
+          "pending_signal_flags": 0,
+          "carry_over": 1,
+          "summary_type": "abstractive",
+          "last_abstractive_at": "2026-09-12T10:47:49.639Z",
+          "abstractive_token_count": 3
+        },
+        "calls": [
+          {
+            "after": null,
+            "limit": 200
+          },
+          {
+            "after": "m200",
+            "limit": 1
+          },
+          {
+            "after": "m200",
+            "limit": 200
+          }
+        ]
+      }
+    },
+    {
+      "name": "06-production-processThread-second-tail-batch",
+      "passed": true,
+      "evidence": {
+        "afterFirst": {
+          "thread_id": "T42",
+          "last_summarized_message_id": "m200",
+          "pending_message_count": 5,
+          "pending_token_count": 10,
+          "pending_signal_flags": 0,
+          "carry_over": 1,
+          "summary_type": "abstractive",
+          "last_abstractive_at": "2026-09-12T10:47:49.645Z",
+          "abstractive_token_count": 3
+        },
+        "afterSecond": {
+          "thread_id": "T42",
+          "last_summarized_message_id": "m205",
+          "pending_message_count": 0,
+          "pending_token_count": 0,
+          "pending_signal_flags": 0,
+          "carry_over": 0,
+          "summary_type": "abstractive",
+          "last_abstractive_at": "2026-09-12T10:47:49.645Z",
+          "abstractive_token_count": 3
+        },
+        "segments": [
+          {
+            "from_message_id": "m001",
+            "to_message_id": "m200",
+            "message_count": 200
+          },
+          {
+            "from_message_id": "m201",
+            "to_message_id": "m205",
+            "message_count": 5
+          }
+        ]
+      }
+    },
+    {
+      "name": "06-model-null-does-not-advance",
+      "passed": true,
+      "evidence": {
+        "ok": false,
+        "watermark": null
+      }
+    },
+    {
+      "name": "06-transaction-failure-rolls-back-segment-and-watermark",
+      "passed": true,
+      "evidence": {
+        "segments": 0,
+        "watermark": null
+      }
+    },
+    {
+      "name": "06-reembed-failure-does-not-roll-back-committed-summary",
+      "passed": true,
+      "evidence": {
+        "watermark": "m020",
+        "summary": "new-summary"
+      }
+    },
+    {
+      "name": "06-candidate-failure-retains-replay-source",
+      "passed": true,
+      "evidence": {
+        "watermark": "m020",
+        "storedCandidates": [
+          {
+            "kind": "lesson",
+            "title": "网络重试必须保持业务幂等",
+            "claim": "稳定业务键消除重复写入",
+            "confidence": "inferred"
+          }
+        ],
+        "markerFileWritten": false
+      }
+    },
+    {
+      "name": "07-decision-question-rules-are-not-exclusive",
+      "passed": true,
+      "evidence": {
+        "decisions": [
+          "采用稳定幂等键",
+          "是否使用 Redis 还需要确认"
+        ],
+        "openQuestions": [
+          "是否使用 Redis 还需要确认"
+        ],
+        "artifacts": [
+          "ADR-020",
+          "F102"
+        ]
+      }
+    },
+    {
+      "name": "07-threadMemory-source-with-token-estimator-stub",
+      "passed": true,
+      "evidence": {
+        "full": "Session #2 (TIME, 1min): Modified: src/api.ts.\nOLD_RECENT\nOLD_OLDEST",
+        "budget": 57,
+        "trimmed": {
+          "v": 1,
+          "summary": "Session #2 (TIME, 1min): Modified: src/api.ts.\nOLD_RECENT",
+          "sessionsIncorporated": 8,
+          "updatedAt": 1789210069670,
+          "recentArtifacts": [
+            {
+              "ref": "A",
+              "updatedAt": 5
+            },
+            {
+              "ref": "B",
+              "updatedAt": 2
+            }
+          ]
+        },
+        "scope": "original function module body; character-count token stub + time-format stub, not actual tokenizer or provider budget"
+      }
+    },
+    {
+      "name": "07-transcript-live-buffer-merge-original-fragment",
+      "passed": true,
+      "evidence": {
+        "merged": [
+          {
+            "eventNo": 0,
+            "timestamp": 100,
+            "invocationId": "I-old",
+            "event": {
+              "type": "text",
+              "content": "before"
+            }
+          },
+          {
+            "eventNo": 1,
+            "timestamp": 200,
+            "invocationId": "I-new",
+            "event": {
+              "type": "text",
+              "content": "after"
+            }
+          }
+        ],
+        "identicalTimeAndPayloadDifferentInvocationCount": 1,
+        "scope": "original merge fragment, buffers and events in memory, no filesystem flush"
+      }
+    },
+    {
+      "name": "07-bootstrap-budget-original-drop-fragment",
+      "passed": true,
+      "evidence": {
+        "fitsAfterDroppingRecallAndTask": {
+          "remainingBudget": 1550,
+          "tm": 1000,
+          "recall": 0,
+          "digest": 500,
+          "task": 0,
+          "hasThreadMemory": true
+        },
+        "oversizeThreadMemory": {
+          "remainingBudget": 1550,
+          "tm": 0,
+          "recall": 0,
+          "digest": 0,
+          "task": 0,
+          "hasThreadMemory": false
+        },
+        "scope": "original budget fragment with explicit character-count estimator; no actual tokenizer or provider call"
+      }
+    },
+    {
+      "name": "08-legacy-governance-table-is-strict",
+      "passed": true,
+      "evidence": {
+        "draftSubmitReview": "pending_review",
+        "pendingApprove": "published",
+        "draftApprove": "throws"
+      }
+    },
+    {
+      "name": "08-duplicate-single-linkage-chain",
+      "passed": true,
+      "evidence": [
+        {
+          "anchors": [
+            "A",
+            "B",
+            "C"
+          ],
+          "similarity": 0.7071067811865476,
+          "suggestedTitle": "alpha beta gamma delta"
+        }
+      ]
+    },
+    {
+      "name": "08-contradiction-is-overlap-not-logical-proof",
+      "passed": true,
+      "evidence": [
+        {
+          "anchor": "D1",
+          "title": "retry request",
+          "similarity": 0.9999999999999998,
+          "reason": "lexical_overlap"
+        }
+      ]
+    },
+    {
+      "name": "10-window-OR-semantics",
+      "passed": true,
+      "evidence": {
+        "step21time2min": [
+          {
+            "anchor": "DOC-A",
+            "rank": 0,
+            "method": "Read",
+            "consumingEventId": "Read@1789210189612",
+            "distance": 21
+          }
+        ],
+        "step3time6min": [
+          {
+            "anchor": "DOC-A",
+            "rank": 0,
+            "method": "Read",
+            "consumingEventId": "Read@1789210429612",
+            "distance": 3
+          }
+        ],
+        "step21time6min": []
+      }
+    },
+    {
+      "name": "10-other-cat-and-next-invocation-are-not-consumption",
+      "passed": true,
+      "evidence": {
+        "foreignCat": 0,
+        "nextInvocation": 0
+      }
+    },
+    {
+      "name": "10-target-match-is-substring-and-not-read-success",
+      "passed": true,
+      "evidence": {
+        "substringBackupMatches": true,
+        "errorStatusStillMatchedAtThisLayer": true
+      }
+    },
+    {
+      "name": "10-passage-target-not-matched-by-thread-reader",
+      "passed": true,
+      "evidence": {
+        "passageTarget": false,
+        "threadTarget": true
+      }
+    },
+    {
+      "name": "10-output-parser-keeps-count-separate-and-source-blocks",
+      "passed": true,
+      "evidence": {
+        "resultCount": 3,
+        "nudgeEmitted": false,
+        "topConfidence": "high",
+        "_f200Candidates": [
+          {
+            "anchor": "DOC-A",
+            "rank": 0,
+            "docKind": "lesson"
+          },
+          {
+            "anchor": "DOC-B",
+            "rank": 1,
+            "docKind": "lesson",
+            "sourcePath": "docs/b.md"
+          }
+        ]
+      }
+    },
+    {
+      "name": "10-two-searches-one-read-is-ambiguous",
+      "passed": true,
+      "evidence": [
+        {
+          "tool": "search_evidence",
+          "bundle": "f79a2239-b86e-476b-83a6-c1d7d15ad432",
+          "clarity": "ambiguous",
+          "consumed": 1
+        },
+        {
+          "tool": "search_evidence",
+          "bundle": "f79a2239-b86e-476b-83a6-c1d7d15ad432",
+          "clarity": "ambiguous",
+          "consumed": 1
+        }
+      ]
+    },
+    {
+      "name": "10-graph-dual-role-closes-and-opens-bundles",
+      "passed": true,
+      "evidence": [
+        {
+          "tool": "search_evidence",
+          "bundle": "fd97f29b-2e1e-4341-a0cc-82382986229b"
+        },
+        {
+          "tool": "graph_resolve",
+          "bundle": "e45f348e-356d-4bf0-a785-585ae307d396"
+        },
+        {
+          "tool": "search_evidence",
+          "bundle": "d87ec148-08b6-4b75-b476-cd043ea27609"
+        }
+      ]
+    },
+    {
+      "name": "10-one-shell-read-can-consume-two-docs",
+      "passed": true,
+      "evidence": [
+        {
+          "anchor": "DOC-A",
+          "rank": 0,
+          "method": "command_execution",
+          "consumingEventId": "command_execution@1789210070612",
+          "distance": 1
+        },
+        {
+          "anchor": "DOC-B",
+          "rank": 1,
+          "method": "command_execution",
+          "consumingEventId": "command_execution@1789210070612",
+          "distance": 1
+        }
+      ]
+    },
+    {
+      "name": "10-search-text-thread-anchor-does-not-infer-thread-ref",
+      "passed": true,
+      "evidence": {
+        "candidate": {
+          "anchor": "thread-T42",
+          "rank": 0,
+          "targetRef": {
+            "kind": "doc",
+            "sourcePath": "threads/T42",
+            "anchor": "thread-T42"
+          },
+          "docKind": "discussion"
+        },
+        "consumed": [],
+        "scope": "specific production text-parser + correlator composition; other producers may provide explicit typed coordinates"
+      }
+    },
+    {
+      "name": "10-core-metrics-three-recalls",
+      "passed": true,
+      "evidence": {
+        "consumedAt3": 0.6666666666666666,
+        "consumedMRR": 0.4444444444444444,
+        "reformulationRate": 0,
+        "searchAbandonRate": 0.3333333333333333
+      }
+    }
+  ]
+}

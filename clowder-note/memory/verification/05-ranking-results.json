@@ -1,0 +1,543 @@
+{
+  "schemaVersion": 1,
+  "chapter": "05-搜索结果重排算法",
+  "sourceBaselineCommit": "6868041cae3b9dcab163a1fd85845b9778c3adc5",
+  "sourceRoot": "D:\\AI\\clower-1\\clowder-ai\\packages\\api\\src",
+  "sourceFingerprintEncoding": "SHA-256 over UTF-8 text with CRLF normalized to LF",
+  "sourceHashes": {
+    "domains/memory/f163-types.ts": "bc331b8d76a858b2cdd821d64b49943159c422c393be67fc6092e17ccb6e1069",
+    "domains/memory/consumption-prior.ts": "45a927fda52b80f0d6f57694ac069e3501368c6819119075cda5a554cd6529e1",
+    "domains/memory/recency-decay.ts": "38a19f1f6ab29b07336efbc878c1c693f1358e5ebb70be06da218162c43752d7",
+    "domains/memory/mmr.ts": "8b8b395472a7c557cf4592b8268b07bcf7c4691005082b6f2d5c4fb466faa29e",
+    "domains/memory/lexical-backfill.ts": "6033f8a158a5cdb75079e8913e86262a53a25ec3e1e4a90c87f14e4c6ab9c4cc",
+    "domains/memory/f200-types.ts": "61d59fcdd5fb45e4b6a312202359e0551ba934cb9c75edb409933a1c58378cad",
+    "domains/memory/SqliteEvidenceStore.ts": "a4b61f70b8ad42708791ecdf4078ae4ce403aebbe2f340b778fbba584ba3c70e",
+    "routes/evidence.ts": "f2672014795f8999f128fd1ebd3f79e7d813bd7564f2be6ce1d6e6d9f90008b8"
+  },
+  "nodeVersion": "v24.14.0",
+  "startedAt": "2026-09-12T10:47:49.743Z",
+  "completedAt": "2026-09-12T10:47:49.773Z",
+  "expectedChecks": 76,
+  "checks": 76,
+  "passed": [
+    "authority default off",
+    "salience default off",
+    "consumption default off",
+    "authority off",
+    "authority shadow",
+    "authority on",
+    "B shrunk CTR",
+    "B prior",
+    "E negative prior",
+    "C negative rawLift",
+    "C low sample clamp",
+    "C branch",
+    "F one of one shrink",
+    "F insufficient exposure",
+    "D seven-day grace precedes constitution",
+    "D grace diagnostics zero",
+    "feature half-life",
+    "fractional not exponential",
+    "lesson no age decay",
+    "unknown half-life",
+    "main score D",
+    "main score A",
+    "main score C",
+    "main score B",
+    "main score E",
+    "main score F",
+    "F200 off",
+    "main store order",
+    "on stores prior order",
+    "route off",
+    "route shadow",
+    "route on",
+    "explain retains store ranks",
+    "confidence ranks",
+    "A salience",
+    "C salience",
+    "D always_on salience",
+    "no context stable order",
+    "named query skips all authority",
+    "only A protected",
+    "protected at seven-day grace",
+    "exact fourteen days exits grace",
+    "D CTR after grace",
+    "never-consumed lesson factor half",
+    "D negative lift after grace",
+    "D constitutional prior clamp",
+    "local pinned slot plus protected prefix",
+    "D global position changes despite pinned local index two",
+    "protected early-return removes one nonprotected",
+    "actual hybrid RRF with supplied NN ranks",
+    "hybrid six movable triggers MMR",
+    "hybrid on shadow pre-F200 RRF",
+    "salience after MMR",
+    "pure MMR matches Store",
+    "A B Jaccard",
+    "C B Jaccard",
+    "empty keywords similarity zero",
+    "keywords case-sensitive",
+    "MMR below threshold slices input",
+    "shadow live truncation",
+    "shadow records would-be MMR",
+    "salience can reorder F200 shadow live",
+    "one pinned leaves only five movable so no MMR",
+    "raw passage first",
+    "raw consumption after passage rank",
+    "raw route last",
+    "metric read failure preserves existing order",
+    "explain still attached after read failure",
+    "no statistics still changes order by age",
+    "invalid age yields NaN without throw",
+    "validated feature not immune",
+    "four exposures",
+    "five exposures",
+    "nineteen exposures",
+    "observed decision immune",
+    "one millisecond inside grace beats constitution"
+  ],
+  "validationScope": {
+    "execution": "Extracted source functions/methods and route salience expression in an in-memory VM",
+    "statistics": "Read-only JavaScript fixture stubs; no SQLite/Redis connection or files",
+    "retrieval": "Given lexical/NN ranks and hydrated passage fixture; no real FTS/vector/embedding request",
+    "clock": "Fixed simulated UTC clocks; host process.env and host clock are not changed",
+    "notCovered": [
+      "Full HTTP handler",
+      "Real databases/services",
+      "Real recall quality",
+      "Performance benchmarks"
+    ],
+    "preflight": "Source fingerprints and the expected total protect reproducibility; not part of the 76 ranking assertions"
+  },
+  "status": "passed",
+  "failures": [],
+  "mainScores": [
+    {
+      "id": "D",
+      "i": 0,
+      "prior": 0,
+      "branch": "cold-start",
+      "age": 7,
+      "decay": 1,
+      "S": 0.06666666666666667,
+      "pinned": false
+    },
+    {
+      "id": "A",
+      "i": 1,
+      "prior": 0.04999999999999999,
+      "branch": "full",
+      "age": 90,
+      "decay": 0.5,
+      "S": 0.023893442622950817,
+      "pinned": false
+    },
+    {
+      "id": "C",
+      "i": 2,
+      "prior": 0,
+      "branch": "low-sample",
+      "age": 45,
+      "decay": 0.5,
+      "S": 0.016129032258064516,
+      "pinned": false
+    },
+    {
+      "id": "B",
+      "i": 3,
+      "prior": 0.35000000000000003,
+      "branch": "full",
+      "age": 0,
+      "decay": 1,
+      "S": 0.11837301587301588,
+      "pinned": false
+    },
+    {
+      "id": "E",
+      "i": 4,
+      "prior": -0.08333333333333334,
+      "branch": "full",
+      "age": 180,
+      "decay": 0.3333333333333333,
+      "S": -0.01354166666666667,
+      "pinned": false
+    },
+    {
+      "id": "F",
+      "i": 5,
+      "prior": 0,
+      "branch": "cold-start",
+      "age": 14,
+      "decay": 0.5,
+      "S": 0.015384615384615385,
+      "pinned": false
+    }
+  ],
+  "priors": {
+    "A": {
+      "shrunkCtr": 0.25,
+      "meanCtrKind": 0.2,
+      "recencyFactor": 1,
+      "rawLift": 0.04999999999999999,
+      "prior": 0.04999999999999999,
+      "branch": "full"
+    },
+    "B": {
+      "shrunkCtr": 0.55,
+      "meanCtrKind": 0.2,
+      "recencyFactor": 1,
+      "rawLift": 0.35000000000000003,
+      "prior": 0.35000000000000003,
+      "branch": "full"
+    },
+    "C": {
+      "shrunkCtr": 0.1,
+      "meanCtrKind": 0.2,
+      "recencyFactor": 0.5,
+      "rawLift": -0.05,
+      "prior": 0,
+      "branch": "low-sample"
+    },
+    "D": {
+      "shrunkCtr": 0,
+      "meanCtrKind": 0,
+      "recencyFactor": 0,
+      "rawLift": 0,
+      "prior": 0,
+      "branch": "cold-start"
+    },
+    "E": {
+      "shrunkCtr": 0.03333333333333333,
+      "meanCtrKind": 0.2,
+      "recencyFactor": 0.5,
+      "rawLift": -0.08333333333333334,
+      "prior": -0.08333333333333334,
+      "branch": "full"
+    },
+    "F": {
+      "shrunkCtr": 0.2727272727272727,
+      "meanCtrKind": 0.2,
+      "recencyFactor": 1,
+      "rawLift": 0.0727272727272727,
+      "prior": 0,
+      "branch": "cold-start"
+    }
+  },
+  "pinScores": [
+    {
+      "id": "E",
+      "i": 0,
+      "prior": -0.08021390374331551,
+      "branch": "full",
+      "age": 187,
+      "decay": 0.3249097472924188,
+      "S": -0.012874444165588781,
+      "pinned": false
+    },
+    {
+      "id": "C",
+      "i": 1,
+      "prior": 0,
+      "branch": "low-sample",
+      "age": 52,
+      "decay": 0.4639175257731959,
+      "S": 0.01278519520027041,
+      "pinned": false
+    },
+    {
+      "id": "D",
+      "i": 2,
+      "prior": 0,
+      "branch": "constitutional",
+      "age": 14,
+      "decay": 1,
+      "S": 0.06612903225806452,
+      "pinned": true
+    },
+    {
+      "id": "B",
+      "i": 3,
+      "prior": 0.3247422680412372,
+      "branch": "full",
+      "age": 7,
+      "decay": 0.9278350515463918,
+      "S": 0.10736786123384062,
+      "pinned": false
+    },
+    {
+      "id": "F",
+      "i": 4,
+      "prior": 0,
+      "branch": "cold-start",
+      "age": 21,
+      "decay": 0.4,
+      "S": 0.0056250000000000015,
+      "pinned": false
+    }
+  ],
+  "hybridScores": [
+    {
+      "id": "A",
+      "i": 0,
+      "prior": 0.04999999999999999,
+      "branch": "full",
+      "age": 90,
+      "decay": 0.5,
+      "S": 0.024166666666666663,
+      "pinned": false
+    },
+    {
+      "id": "D",
+      "i": 1,
+      "prior": 0,
+      "branch": "cold-start",
+      "age": 7,
+      "decay": 1,
+      "S": 0.06639344262295083,
+      "pinned": false
+    },
+    {
+      "id": "B",
+      "i": 2,
+      "prior": 0.35000000000000003,
+      "branch": "full",
+      "age": 0,
+      "decay": 1,
+      "S": 0.11862903225806452,
+      "pinned": false
+    },
+    {
+      "id": "C",
+      "i": 3,
+      "prior": 0,
+      "branch": "low-sample",
+      "age": 45,
+      "decay": 0.5,
+      "S": 0.015873015873015872,
+      "pinned": false
+    },
+    {
+      "id": "E",
+      "i": 4,
+      "prior": -0.08333333333333334,
+      "branch": "full",
+      "age": 180,
+      "decay": 0.3333333333333333,
+      "S": -0.01354166666666667,
+      "pinned": false
+    },
+    {
+      "id": "F",
+      "i": 5,
+      "prior": 0,
+      "branch": "cold-start",
+      "age": 14,
+      "decay": 0.5,
+      "S": 0.015384615384615385,
+      "pinned": false
+    }
+  ],
+  "firstRound": [
+    {
+      "id": "B",
+      "score": 0.08304032258064516
+    },
+    {
+      "id": "D",
+      "score": 0.04647540983606557
+    },
+    {
+      "id": "A",
+      "score": 0.016916666666666663
+    },
+    {
+      "id": "C",
+      "score": 0.01111111111111111
+    },
+    {
+      "id": "F",
+      "score": 0.010769230769230769
+    },
+    {
+      "id": "E",
+      "score": -0.009479166666666669
+    }
+  ],
+  "secondRound": [
+    {
+      "id": "D",
+      "J": 1,
+      "score": -0.2535245901639344
+    },
+    {
+      "id": "A",
+      "J": 0.6666666666666666,
+      "score": -0.18308333333333332
+    },
+    {
+      "id": "C",
+      "J": 0,
+      "score": 0.01111111111111111
+    },
+    {
+      "id": "F",
+      "J": 1,
+      "score": -0.28923076923076924
+    },
+    {
+      "id": "E",
+      "J": 1,
+      "score": -0.30947916666666664
+    }
+  ],
+  "readOnlyStubQueries": 20,
+  "fixture": {
+    "documents": [
+      {
+        "id": "A",
+        "anchor": "F163-cache-guide",
+        "kind": "feature",
+        "authority": "validated",
+        "activation": "query",
+        "title": "缓存失效处理规范",
+        "summary": "缓存失效时先核对版本。",
+        "keywords": [
+          "cache",
+          "ttl",
+          "F163"
+        ],
+        "updatedAt": "2026-06-14T00:00:00Z",
+        "first": "2026-07-01",
+        "c": 8,
+        "n": 30,
+        "last": "2026-09-12",
+        "status": "active",
+        "firstIndexedAt": 1782864000000
+      },
+      {
+        "id": "B",
+        "anchor": "doc:popular-cache",
+        "kind": "feature",
+        "authority": "observed",
+        "activation": "query",
+        "title": "Redis 缓存维护",
+        "summary": "容量和过期参数的维护记录。",
+        "keywords": [
+          "cache",
+          "ttl"
+        ],
+        "updatedAt": "2026-09-12T00:00:00Z",
+        "first": "2026-07-01",
+        "c": 20,
+        "n": 30,
+        "last": "2026-09-12",
+        "status": "active",
+        "firstIndexedAt": 1782864000000
+      },
+      {
+        "id": "C",
+        "anchor": "doc:queue-plan",
+        "kind": "plan",
+        "authority": "candidate",
+        "activation": "scoped",
+        "title": "异步队列重试方案",
+        "summary": "cache 写入失败后转向队列重试。",
+        "keywords": [
+          "queue",
+          "retry",
+          "F163"
+        ],
+        "updatedAt": "2026-07-29T00:00:00Z",
+        "first": "2026-07-01",
+        "c": 0,
+        "n": 10,
+        "last": "2026-07-29",
+        "status": "active",
+        "firstIndexedAt": 1782864000000
+      },
+      {
+        "id": "D",
+        "anchor": "doc:cache-lesson",
+        "kind": "lesson",
+        "authority": "constitutional",
+        "activation": "always_on",
+        "title": "缓存设计守则",
+        "summary": "缓存系统的长期规则。",
+        "keywords": [
+          "cache",
+          "ttl"
+        ],
+        "updatedAt": "2026-09-05T00:00:00Z",
+        "first": "2026-09-05",
+        "c": 0,
+        "n": 30,
+        "last": null,
+        "status": "active",
+        "firstIndexedAt": 1788566400000
+      },
+      {
+        "id": "E",
+        "anchor": "doc:old-cache",
+        "kind": "feature",
+        "authority": "observed",
+        "activation": "query",
+        "title": "早期缓存草案",
+        "summary": "已经过时的缓存探索。",
+        "keywords": [
+          "cache",
+          "ttl"
+        ],
+        "updatedAt": "2026-03-16T00:00:00Z",
+        "first": "2026-07-01",
+        "c": 0,
+        "n": 50,
+        "last": "2026-06-14",
+        "status": "active",
+        "firstIndexedAt": 1782864000000
+      },
+      {
+        "id": "F",
+        "anchor": "thread-cache",
+        "kind": "thread",
+        "authority": "observed",
+        "activation": "query",
+        "title": "缓存参数讨论",
+        "summary": "讨论缓存参数。",
+        "keywords": [
+          "cache",
+          "ttl"
+        ],
+        "updatedAt": "2026-08-29T00:00:00Z",
+        "first": "2026-07-01",
+        "c": 1,
+        "n": 1,
+        "last": "2026-09-12",
+        "status": "active",
+        "firstIndexedAt": 1782864000000
+      }
+    ],
+    "taskContext": {
+      "activeFeatureIds": [
+        "F163"
+      ],
+      "truthSourceRef": "F163-cache-guide",
+      "recentArtifactRefs": [
+        "doc:queue-plan"
+      ]
+    },
+    "clocks": [
+      "2026-09-12T00:00:00Z",
+      "2026-09-19T00:00:00Z"
+    ],
+    "lexicalOrder": "ABCDEF",
+    "suppliedNnOrder": "BACDFE",
+    "namedQueryInput": "ECDBAF",
+    "baselineByKind": {
+      "feature": 0.2,
+      "plan": 0.2,
+      "lesson": 0.2,
+      "thread": 0.2
+    }
+  }
+}

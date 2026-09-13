@@ -1,0 +1,98 @@
+{
+  "date": "2026-09-12",
+  "sourceCommit": "6868041ca",
+  "chapter01Unchanged": true,
+  "chapter01Sha256": "8d60a0661879e2a63003eed91f81e93690e6fd8f579845bfa23921b5914ac11f",
+  "localLinksChecked": 420,
+  "filesWithLineReferences": 95,
+  "verification": {
+    "main": {
+      "cases": 39,
+      "passed": 39,
+      "failed": 0
+    },
+    "ranking": {
+      "checks": 76,
+      "status": "passed"
+    },
+    "navigation": {
+      "assertions": 71,
+      "allPassed": true
+    }
+  },
+  "documents": [
+    {
+      "file": "01-消息写入与增量索引.md",
+      "cjk": 6368,
+      "bytes": 40098,
+      "sha256": "8d60a0661879e2a63003eed91f81e93690e6fd8f579845bfa23921b5914ac11f"
+    },
+    {
+      "file": "02-文档索引编译器.md",
+      "cjk": 11359,
+      "bytes": 72762,
+      "sha256": "d77aad738dfc1d4623a592c2a0e04dda300c640a6c3695f4d1d5d649b8ded734"
+    },
+    {
+      "file": "03-关键词检索与渐进召回.md",
+      "cjk": 4334,
+      "bytes": 24029,
+      "sha256": "d851e583212f2b302e256b29b43ee65042be9a7792344a2c1001fa8a681be91b"
+    },
+    {
+      "file": "04-向量召回与混合检索.md",
+      "cjk": 3772,
+      "bytes": 21001,
+      "sha256": "1b0822831dab678afb3f5f36be604cbf074ce0f85604ff1fdd93980657cd4fed"
+    },
+    {
+      "file": "05-搜索结果重排算法.md",
+      "cjk": 8256,
+      "bytes": 49925,
+      "sha256": "6a120835c62b0577986ce861cc3470bfd15a989ce7600bf1367d402ce2829978"
+    },
+    {
+      "file": "06-后台摘要与Watermark.md",
+      "cjk": 4570,
+      "bytes": 23019,
+      "sha256": "79a4399b31b7e965e3be67d489fbc276f954280ec62502e7db3fc6fdf8cef286"
+    },
+    {
+      "file": "07-会话记忆与上下文接续.md",
+      "cjk": 4229,
+      "bytes": 23330,
+      "sha256": "05652eb5bdeaed2588b181ef10516756ea3672d17baf861e63f1d58f93a83b02"
+    },
+    {
+      "file": "08-长期知识生命周期与安全.md",
+      "cjk": 3897,
+      "bytes": 19609,
+      "sha256": "d73a31f189633d7256ca68c4122ec36d644305df3e6acda570ee015dfb5ed002"
+    },
+    {
+      "file": "09-多知识域与记忆导航.md",
+      "cjk": 9493,
+      "bytes": 60968,
+      "sha256": "dac2c7a1a74e124d46e24e4eb5395a8a91bc315bcdeda070998a205642902c1c"
+    },
+    {
+      "file": "10-召回评估与可靠性验证.md",
+      "cjk": 4274,
+      "bytes": 21650,
+      "sha256": "16ca39c278521621d4beb8fd346b7ff5785eddf3a7739ee9f9b3e8ffdd18213c"
+    },
+    {
+      "file": "README.md",
+      "cjk": 1760,
+      "bytes": 8271,
+      "sha256": "cc6cc89ded8b8731286e284db5fced160a5209ccc3d6bc1fedf83ff117746aee"
+    },
+    {
+      "file": "verification/README.md",
+      "cjk": 1056,
+      "bytes": 5301,
+      "sha256": "dc96a0c2ae9ad40ec3d8274fe9c934ad3eb054dd2f28a677c7964607bd40c8a1"
+    }
+  ],
+  "errors": []
+}
